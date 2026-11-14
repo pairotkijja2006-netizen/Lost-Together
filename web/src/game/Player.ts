@@ -1,4 +1,5 @@
-import { scaledHitbox } from "../config/gameConfig";
+import { adventurerConfig, type AdventurerClass } from "../config/adventurerConfig";
+import { gameConfig } from "../config/gameConfig";
 import type { Facing } from "../config/spriteConfig";
 
 export interface Rect {
@@ -14,19 +15,22 @@ export class Player {
   y: number;
   facing: Facing = "down";
   moving = false;
+  readonly classType: AdventurerClass;
 
-  constructor(x: number, y: number) {
+  constructor(x: number, y: number, classType: AdventurerClass) {
     this.x = x;
     this.y = y;
+    this.classType = classType;
   }
 
   hitbox(): Rect {
-    const { width, height, offsetX, offsetY } = scaledHitbox();
+    const scale = adventurerConfig[this.classType].scale;
+    const box = gameConfig.hitbox;
     return {
-      x: this.x + offsetX,
-      y: this.y + offsetY,
-      width,
-      height,
+      x: this.x + box.offsetX * scale,
+      y: this.y + box.offsetY * scale,
+      width: box.width * scale,
+      height: box.height * scale,
     };
   }
 }

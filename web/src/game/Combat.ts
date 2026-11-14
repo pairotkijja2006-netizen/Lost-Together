@@ -1,8 +1,10 @@
+import { adventurerConfig, type AdventurerClass } from "../config/adventurerConfig";
 import { combatConfig } from "../config/combatConfig";
 import { gameConfig, scaledHitbox } from "../config/gameConfig";
 import type { Facing } from "../config/spriteConfig";
 import type { CollisionSystem } from "./CollisionSystem";
 import type { Doorway, DrawnRoom, DungeonMap } from "./DungeonMap";
+import { separateBodies } from "./EntityCollision";
 import type { Rect } from "./Player";
 import {
   facingVector,
@@ -30,6 +32,7 @@ export interface SpriteDraw {
   anchorY: number;
   tint: boolean;
   rotation: number;
+  scale: number;
 }
 
 export type { SlashDraw };
@@ -39,47 +42,88 @@ const ENTRY_MARGIN = 6;
 
 let nextGoblinId = 1;
 
+interface Fireball {
+  id: number;
+  x: number;
+  y: number;
+  directionX: number;
+  directionY: number;
+  distanceTraveled: number;
+  active: boolean;
+}
+
+interface Blast {
+  x: number;
+  y: number;
+  radius: number;
+  age: number;
+  hits: number;
+}
+
+let nextFireballId = 1;
+
 export class Combat {
-  readonly maxHearts = combatConfig.knight.hearts;
-  hearts = combatConfig.knight.hearts;
+  readonly maxHearts: number;
+  hearts: number;
   private flash = 0;
   private invincible = 0;
   private cooldown = 0;
   private slashTime = 0;
   private slashFacing: Facing = "right";
+  private castTimer = 0;
+  private castFacing: Facing = "down";
   private readonly struck = new Set<number>();
   private readonly goblins: Goblin[];
   private readonly engaged = new Set<number>();
+  private readonly fireballs: Fireball[] = [];
+  private readonly blasts: Blast[] = [];
 
   constructor(
     private map: DungeonMap,
     private images: Images,
     private collision: CollisionSystem,
+    private adventurer: AdventurerClass,
   ) {
     this.goblins = spawnGoblins(map);
+    this.maxHearts = adventurerConfig[adventurer].maxHealth;
+    this.hearts = this.maxHearts;
   }
 
-  update(dt: number, knightX: number, knightY: number, facing: Facing, attackPressed: boolean): { x: number; y: number } {
+  update(
+    dt: number,
+    knightX: number,
+    knightY: number,
+    facing: Facing,
+    attackPressed: boolean,
+    attackHeld: boolean,
+    aimX: number,
+    aimY: number,
+  ): { x: number; y: number; facing: Facing | null } {
     this.flash = Math.max(0, this.flash - dt);
     this.invincible = Math.max(0, this.invincible - dt);
     this.cooldown = Math.max(0, this.cooldown - dt);
+    this.castTimer = Math.max(0, this.castTimer - dt);
     if (this.slashTime > 0) {
       this.slashTime = Math.max(0, this.slashTime - dt);
     }
 
     const slash = combatConfig.knightSlash;
-    if (attackPressed && this.cooldown <= 0 && this.slashTime <= 0) {
+    if (this.adventurer === "knight" && attackPressed && this.cooldown <= 0 && this.slashTime <= 0) {
       this.slashTime = slash.duration;
       this.slashFacing = facing;
       this.struck.clear();
       this.cooldown = slash.cooldown;
     }
+    if (this.adventurer === "wizard" && attackHeld && this.cooldown <= 0) {
+      this.launchFireball(knightX, knightY, aimX, aimY, facing);
+    }
+    this.advanceFireballs(dt);
 
     const placed = this.enterEnemyRoom(knightX, knightY);
     const x = placed.x;
     const y = placed.y;
 
-    if (this.swordActive()) {
+    if (this.adventurer === "knight" && this.swordActive()) {
       const sword = this.knightHitbox(x, y);
       for (const goblin of this.goblins) {
         if (goblin.dead || this.struck.has(goblin.id)) {
@@ -94,13 +138,210 @@ export class Combat {
 
     const body = this.knightBody(x, y);
     for (const goblin of this.goblins) {
-      goblin.update(dt, x, y, body, this.engaged.has(goblin.roomIndex), this.map, this.collision, () => {
+      const allies = this.goblins
+        .filter((other) => other !== goblin && !other.dead)
+        .map((other) => ({ x: other.x, y: other.y }));
+      goblin.update(dt, x, y, body, this.engaged.has(goblin.roomIndex), allies, this.map, this.collision, () => {
         this.hurtKnight();
       });
     }
 
+    const stats = adventurerConfig[this.adventurer];
+    const playerBody = { x, y, radius: stats.bodyRadius };
+    const goblinBodies = this.goblins
+      .filter((goblin) => !goblin.dead)
+      .map((goblin) => ({ goblin, x: goblin.x, y: goblin.y, radius: combatConfig.goblin.bodyRadius }));
+    separateBodies(this.map, playerBody, goblinBodies);
+    for (const body of goblinBodies) {
+      body.goblin.x = body.x;
+      body.goblin.y = body.y;
+    }
+
     this.syncRoomLocks();
-    return placed;
+    const blastDuration = combatConfig.wizard.fireball.explosionDuration;
+    for (let index = this.blasts.length - 1; index >= 0; index--) {
+      this.blasts[index].age += dt;
+      if (this.blasts[index].age >= blastDuration) {
+        this.blasts.splice(index, 1);
+      }
+    }
+    return {
+      x: playerBody.x,
+      y: playerBody.y,
+      facing: this.castTimer > 0 ? this.castFacing : null,
+    };
+  }
+
+  isDefeated(): boolean {
+    return this.hearts <= 0;
+  }
+
+  attackCooldown(): number {
+    return this.cooldown;
+  }
+
+  explosions(): { x: number; y: number; radius: number; alpha: number; hits: number }[] {
+    const duration = combatConfig.wizard.fireball.explosionDuration;
+    return this.blasts.map((blast) => ({
+      x: blast.x,
+      y: blast.y,
+      radius: blast.radius,
+      alpha: 1 - blast.age / duration,
+      hits: blast.hits,
+    }));
+  }
+
+  // Alternates the two fireball drawings as the shot travels.
+  fireballSprite(traveled: number): HTMLImageElement | null {
+    const length = combatConfig.wizard.fireball.frameLength;
+    const frame = Math.floor(traveled / length) % 2;
+    return this.images.get(`/combat/fireball_${frame + 1}.png`) ?? null;
+  }
+
+  projectiles(): { x: number; y: number; directionX: number; directionY: number; traveled: number; maxRange: number }[] {
+    return this.fireballs
+      .filter((fireball) => fireball.active)
+      .map((fireball) => ({
+        x: fireball.x,
+        y: fireball.y,
+        directionX: fireball.directionX,
+        directionY: fireball.directionY,
+        traveled: fireball.distanceTraveled,
+        maxRange: combatConfig.wizard.fireball.maxRange,
+      }));
+  }
+
+  bodyCircles(playerX: number, playerY: number): { x: number; y: number; radius: number }[] {
+    const circles = [{ x: playerX, y: playerY, radius: adventurerConfig[this.adventurer].bodyRadius }];
+    for (const goblin of this.goblins) {
+      if (!goblin.dead) {
+        circles.push({ x: goblin.x, y: goblin.y, radius: combatConfig.goblin.bodyRadius });
+      }
+    }
+    return circles;
+  }
+
+  // Captures the aim at launch. The projectile keeps that direction afterward.
+  private launchFireball(feetX: number, feetY: number, aimX: number, aimY: number, facing: Facing): void {
+    const shot = combatConfig.wizard.fireball;
+    const originY = feetY + shot.originOffsetY;
+    let dx = aimX - feetX;
+    let dy = aimY - originY;
+    let length = Math.hypot(dx, dy);
+    if (length < 0.001) {
+      const fallback = facingVector(facing);
+      dx = fallback.x;
+      dy = fallback.y;
+      length = 1;
+    }
+    const directionX = dx / length;
+    const directionY = dy / length;
+    this.fireballs.push({
+      id: nextFireballId++,
+      x: feetX + directionX * shot.muzzle,
+      y: originY + directionY * shot.muzzle,
+      directionX,
+      directionY,
+      distanceTraveled: 0,
+      active: true,
+    });
+    this.cooldown = shot.cooldown;
+    this.castTimer = 0.18;
+    this.castFacing = facingFromVector(directionX, directionY);
+  }
+
+  // Steps the projectile so a fast fireball cannot skip a thin wall or a goblin.
+  private advanceFireballs(dt: number): void {
+    const shot = combatConfig.wizard.fireball;
+    const step = 6;
+    for (const ball of this.fireballs) {
+      let remaining = shot.speed * dt;
+      while (remaining > 0 && ball.active) {
+        const move = Math.min(step, remaining);
+        if (ball.distanceTraveled + move >= shot.maxRange) {
+          const left = shot.maxRange - ball.distanceTraveled;
+          ball.x += ball.directionX * left;
+          ball.y += ball.directionY * left;
+          ball.distanceTraveled = shot.maxRange;
+          this.explode(ball);
+          break;
+        }
+        const nextX = ball.x + ball.directionX * move;
+        const nextY = ball.y + ball.directionY * move;
+        if (this.map.overlapsSolid(nextX - 3, nextY - 3, 6, 6)) {
+          this.explode(ball);
+          break;
+        }
+        const struck = this.goblins.find(
+          (goblin) => !goblin.dead && rectsOverlap(projectileBox(nextX, nextY), goblin.body()),
+        );
+        if (struck) {
+          ball.x = nextX;
+          ball.y = nextY;
+          this.explode(ball);
+          break;
+        }
+        ball.x = nextX;
+        ball.y = nextY;
+        ball.distanceTraveled += move;
+        remaining -= move;
+      }
+    }
+    for (let index = this.fireballs.length - 1; index >= 0; index--) {
+      if (!this.fireballs[index].active) {
+        this.fireballs.splice(index, 1);
+      }
+    }
+  }
+
+  // Damage is applied once, here. The orange circle drawn afterward is only a visual.
+  private explode(ball: Fireball): void {
+    if (!ball.active) {
+      return;
+    }
+    ball.active = false;
+    const shot = combatConfig.wizard.fireball;
+    let hits = 0;
+    for (const goblin of this.goblins) {
+      if (goblin.dead) {
+        continue;
+      }
+      const body = goblin.body();
+      if (!rectHitsCircle(body, ball.x, ball.y, shot.explosionRadius)) {
+        continue;
+      }
+      if (this.blockedByWall(ball.x, ball.y, body)) {
+        continue;
+      }
+      goblin.takeHit();
+      hits += 1;
+    }
+    this.blasts.push({
+      x: ball.x,
+      y: ball.y,
+      radius: shot.explosionRadius,
+      age: 0,
+      hits,
+    });
+  }
+
+  private blockedByWall(x: number, y: number, body: Rect): boolean {
+    const targetX = body.x + body.width / 2;
+    const targetY = body.y + body.height / 2;
+    const dx = targetX - x;
+    const dy = targetY - y;
+    const distance = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(distance / 8));
+    for (let step = 1; step < steps; step++) {
+      const sampleX = x + (dx * step) / steps;
+      const sampleY = y + (dy * step) / steps;
+      const tileX = Math.floor(sampleX / gameConfig.tileSize);
+      const tileY = Math.floor(sampleY / gameConfig.tileSize);
+      if (this.map.isSolidTile(tileX, tileY)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   knightFlashing(): boolean {
@@ -125,6 +366,7 @@ export class Combat {
         anchorY: combatConfig.goblin.footAnchorY,
         tint: goblin.flash > 0,
         rotation: 0,
+        scale: combatConfig.goblin.scale,
       });
     }
     return draws;
@@ -186,7 +428,7 @@ export class Combat {
       .filter((goblin) => !goblin.dead)
       .map((goblin) => ({
         x: goblin.x,
-        y: goblin.y - combatConfig.goblin.footAnchorY * gameConfig.sprite.scale - 8,
+        y: goblin.y - combatConfig.goblin.footAnchorY * combatConfig.goblin.scale - 8,
         fraction: goblin.hp / combatConfig.goblin.maxHealth,
       }));
   }
@@ -407,6 +649,7 @@ class Goblin {
     knightY: number,
     knightBody: Rect,
     combatActive: boolean,
+    allies: { x: number; y: number }[],
     map: DungeonMap,
     collision: CollisionSystem,
     hurtKnight: () => void,
@@ -496,9 +739,22 @@ class Goblin {
       return;
     }
 
-    const length = distance || 1;
-    const stepX = ((knightX - this.x) / length) * stats.moveSpeed * dt;
-    const stepY = ((knightY - this.y) / length) * stats.moveSpeed * dt;
+    // Seek the player, with a small push away from nearby goblins so they spread instead of stacking.
+    let steerX = knightX - this.x;
+    let steerY = knightY - this.y;
+    for (const ally of allies) {
+      const awayX = this.x - ally.x;
+      const awayY = this.y - ally.y;
+      const gap = Math.hypot(awayX, awayY);
+      if (gap > 0.001 && gap < 40) {
+        const push = (40 - gap) / 40;
+        steerX += (awayX / gap) * push * 28;
+        steerY += (awayY / gap) * push * 28;
+      }
+    }
+    const length = Math.hypot(steerX, steerY) || 1;
+    const stepX = (steerX / length) * stats.moveSpeed * dt;
+    const stepY = (steerY / length) * stats.moveSpeed * dt;
     const feet = scaledHitbox();
     const box = {
       x: this.x + feet.offsetX,
@@ -507,9 +763,9 @@ class Goblin {
       height: feet.height,
     };
     const next = collision.move(map, box, stepX, stepY);
-    this.moving = Math.hypot(next.x - this.x, next.y - this.y) > 0.2;
-    this.x = next.x;
-    this.y = next.y;
+    this.moving = Math.hypot(next.x, next.y) > 0.2;
+    this.x += next.x;
+    this.y += next.y;
     if (this.moving) {
       this.frameTime += dt;
       const step = 1 / 8;
@@ -546,19 +802,23 @@ function spawnGoblins(map: DungeonMap): Goblin[] {
     if (room.type !== "e") {
       return;
     }
-    for (const side of [-1, 1]) {
-      const point = goblinSpawn(map, room, side);
+    const spots = [
+      { x: 0.28, y: 0.42 },
+      { x: 0.72, y: 0.42 },
+      { x: 0.5, y: 0.68 },
+    ];
+    for (const spot of spots) {
+      const point = goblinSpawn(map, room, spot.x, spot.y);
       goblins.push(new Goblin(point.x, point.y, index));
     }
   });
   return goblins;
 }
 
-function goblinSpawn(map: DungeonMap, room: DrawnRoom, side: number): { x: number; y: number } {
+function goblinSpawn(map: DungeonMap, room: DrawnRoom, fractionX: number, fractionY: number): { x: number; y: number } {
   const feet = scaledHitbox();
   const candidates = [
-    { x: room.x + room.width * (0.5 + side * 0.22), y: room.y + room.height * 0.5 },
-    { x: room.x + room.width * 0.5, y: room.y + room.height * (0.5 + side * 0.18) },
+    { x: room.x + room.width * fractionX, y: room.y + room.height * fractionY },
     { x: room.x + room.width * 0.5, y: room.y + room.height * 0.5 },
   ];
   for (const point of candidates) {
@@ -566,7 +826,23 @@ function goblinSpawn(map: DungeonMap, room: DrawnRoom, side: number): { x: numbe
       return point;
     }
   }
-  return candidates[2];
+  return candidates[1];
+}
+
+function projectileBox(x: number, y: number): Rect {
+  return { x: x - 4, y: y - 4, width: 8, height: 8 };
+}
+
+function rectHitsCircle(rect: Rect, centerX: number, centerY: number, radius: number): boolean {
+  const nearestX = Math.max(rect.x, Math.min(centerX, rect.x + rect.width));
+  const nearestY = Math.max(rect.y, Math.min(centerY, rect.y + rect.height));
+  return Math.hypot(centerX - nearestX, centerY - nearestY) <= radius;
+}
+
+function facingFromVector(x: number, y: number): Facing {
+  const names: Facing[] = ["right", "down-right", "down", "down-left", "left", "up-left", "up", "up-right"];
+  const index = Math.round(Math.atan2(y, x) / (Math.PI / 4));
+  return names[((index % 8) + 8) % 8];
 }
 
 function aimAt(goblinX: number, goblinY: number, knightBody: Rect): { x: number; y: number } {

@@ -1,7 +1,7 @@
-import { cameraConfig } from "../config/cameraConfig";
-import { combatSpriteUrls } from "../config/combatConfig";
+import { adventurerConfig, type AdventurerClass } from "../config/adventurerConfig";
+import { combatConfig, combatSpriteUrls } from "../config/combatConfig";
 import { gameConfig } from "../config/gameConfig";
-import { allSpriteUrls, type Facing } from "../config/spriteConfig";
+import { spritesFor, spriteUrlsFor, type Facing } from "../config/spriteConfig";
 import { AnimationController } from "./AnimationController";
 import { Camera, type WorldView } from "./Camera";
 import { CollisionSystem } from "./CollisionSystem";
@@ -32,13 +32,20 @@ export class Game {
   private disposed = false;
   private lastTime = 0;
   private debug = false;
+  private defeated = false;
   private error: string | null = null;
   private onResize: () => void;
+  private aim = { x: 0, y: 0 };
   // Integer-scaled copies of each frame, so the plume is not shaved off while moving.
   private scaledSprites = new Map<string, HTMLCanvasElement>();
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor(
+    private canvas: HTMLCanvasElement,
+    private adventurer: AdventurerClass,
+    private onGameOver: () => void,
+  ) {
     this.input = new InputManager(
+      canvas,
       () => {
         this.debug = !this.debug;
       },
@@ -52,16 +59,16 @@ export class Game {
     try {
       const [map, images, combatImages] = await Promise.all([
         DungeonMap.load(),
-        loadSprites(allSpriteUrls),
+        loadSprites(spriteUrlsFor(this.adventurer)),
         loadSprites(combatSpriteUrls),
       ]);
       this.map = map;
-      this.combat = new Combat(map, combatImages, this.collision);
+      this.combat = new Combat(map, combatImages, this.collision, this.adventurer);
       const spawn = map.findSpawn();
-      this.player = new Player(spawn.x, spawn.y);
-      this.animation = new AnimationController(images);
+      this.player = new Player(spawn.x, spawn.y, this.adventurer);
+      this.animation = new AnimationController(images, spritesFor(this.adventurer));
       this.frame = this.animation.update(this.player.facing, false, 0);
-      this.camera.snap(spawn.x, spawn.y + cameraFocusOffset());
+      this.camera.snap(spawn.x, spawn.y + this.focusOffset());
       if (this.disposed) {
         return;
       }
@@ -102,6 +109,11 @@ export class Game {
       return;
     }
 
+    if (this.defeated) {
+      return;
+    }
+
+    const stats = adventurerConfig[player.classType];
     const axis = this.input.axis();
     if (axis.facing) {
       player.facing = axis.facing;
@@ -109,27 +121,49 @@ export class Game {
       const next = this.collision.move(
         map,
         player.hitbox(),
-        axis.x * gameConfig.moveSpeed * dt,
-        axis.y * gameConfig.moveSpeed * dt,
+        axis.x * stats.movementSpeed * dt,
+        axis.y * stats.movementSpeed * dt,
       );
-      player.x = next.x;
-      player.y = next.y;
+      player.x += next.x;
+      player.y += next.y;
     } else {
       player.moving = false;
     }
 
-    const placed = this.combat?.update(dt, player.x, player.y, player.facing, this.input.consumeAttack());
+    const pointer = this.input.mouse();
+    this.aim = this.camera.screenToWorld(pointer.x, pointer.y, this.canvas.clientWidth, this.canvas.clientHeight);
+    const placed = this.combat?.update(
+      dt,
+      player.x,
+      player.y,
+      player.facing,
+      this.input.consumeAttack(),
+      this.input.attackDown(),
+      this.aim.x,
+      this.aim.y,
+    );
+    let displayFacing = player.facing;
     if (placed) {
       const dx = placed.x - player.x;
       const dy = placed.y - player.y;
       if (dx !== 0 || dy !== 0) {
         player.x = placed.x;
         player.y = placed.y;
-        this.camera.shift(dx, dy);
+        // Doorway corrections are large. Body separation is a few pixels and should not yank the camera.
+        if (Math.hypot(dx, dy) > 8) {
+          this.camera.shift(dx, dy);
+        }
+      }
+      if (placed.facing) {
+        displayFacing = placed.facing;
       }
     }
-    this.camera.update(dt, player.x, player.y + cameraFocusOffset());
-    this.frame = animation.update(player.facing, player.moving, dt);
+    this.camera.update(dt, player.x, player.y + this.focusOffset());
+    this.frame = animation.update(displayFacing, player.moving, dt);
+    if (this.combat?.isDefeated()) {
+      this.defeated = true;
+      this.onGameOver();
+    }
   }
 
   private resize(): void {
@@ -169,6 +203,7 @@ export class Game {
 
     const dpr = window.devicePixelRatio || 1;
     const view = this.camera.view(this.canvas.width, this.canvas.height, dpr);
+    const stats = adventurerConfig[player.classType];
     context.setTransform(view.scale, 0, 0, view.scale, view.originX, view.originY);
     context.imageSmoothingEnabled = false;
 
@@ -189,6 +224,7 @@ export class Game {
       for (const door of this.combat.lockedDoorTiles()) {
         context.fillRect(door.x, door.y, door.width, door.height);
       }
+      this.drawExplosions(context);
     }
 
     if (this.debug) {
@@ -201,10 +237,10 @@ export class Game {
     context.imageSmoothingEnabled = false;
     if (this.combat) {
       for (const sprite of this.combat.worldSprites()) {
-        this.drawActor(context, sprite.image, view, sprite.feetX, sprite.feetY, sprite.anchorX, sprite.anchorY, sprite.tint, sprite.rotation);
+        this.drawActor(context, sprite.image, view, sprite.feetX, sprite.feetY, sprite.anchorX, sprite.anchorY, sprite.tint, sprite.rotation, sprite.scale);
       }
       for (const slash of this.combat.goblinSlashes()) {
-        this.drawSlash(context, view, slash);
+        this.drawSlash(context, view, slash, gameConfig.sprite.scale);
       }
       this.drawHealthBars(context, view);
     }
@@ -214,17 +250,21 @@ export class Game {
       view,
       player.x,
       player.y,
-      gameConfig.sprite.footAnchorX,
-      gameConfig.sprite.footAnchorY,
+      stats.footAnchorX,
+      stats.footAnchorY,
       this.combat?.knightFlashing() ?? false,
       0,
+      stats.scale,
     );
     const slash = this.combat?.knightSlash(player.x, player.y);
     if (slash) {
-      this.drawSlash(context, view, slash);
+      this.drawSlash(context, view, slash, stats.scale);
+    }
+    if (this.combat) {
+      this.drawFireballs(context, view);
     }
     this.drawHearts(context, dpr);
-    if (this.debug) {
+    if (this.debug && this.combat) {
       const box = player.hitbox();
       context.strokeStyle = "#ffe14a";
       context.lineWidth = 1;
@@ -234,6 +274,7 @@ export class Game {
         box.width * view.scale,
         box.height * view.scale,
       );
+      this.drawCombatDebug(context, view, player);
     }
     if (this.debug) {
       this.drawViewport(context);
@@ -242,8 +283,8 @@ export class Game {
   }
 
   // Spins the crescent around its own center, placed in front of the attacker.
-  private drawSlash(context: CanvasRenderingContext2D, view: WorldView, slash: SlashDraw): void {
-    const scale = gameConfig.sprite.scale * slash.visualScale;
+  private drawSlash(context: CanvasRenderingContext2D, view: WorldView, slash: SlashDraw, characterScale: number): void {
+    const scale = characterScale * slash.visualScale;
     const exactSize = gameConfig.sprite.frameSize * scale * view.scale;
     const size = Math.max(1, Math.round(exactSize));
     const bitmap = this.crispFrame(slash.image, size);
@@ -270,8 +311,8 @@ export class Game {
     anchorY: number,
     tint: boolean,
     rotation: number,
+    scale: number,
   ): void {
-    const scale = gameConfig.sprite.scale;
     const exactLeft = (feetX - anchorX * scale) * view.scale + view.originX;
     const exactTop = (feetY - anchorY * scale) * view.scale + view.originY;
     const exactSize = gameConfig.sprite.frameSize * scale * view.scale;
@@ -317,8 +358,8 @@ export class Game {
     return dest;
   }
 
-  private crispFrame(frame: HTMLImageElement, size: number): HTMLCanvasElement {
-    const key = `${frame.src}@${size}`;
+  private crispFrame(frame: HTMLImageElement, width: number, height = width): HTMLCanvasElement {
+    const key = `${frame.src}@${width}x${height}`;
     const cached = this.scaledSprites.get(key);
     if (cached) {
       return cached;
@@ -328,21 +369,21 @@ export class Game {
     source.height = frame.height;
     const sourceContext = source.getContext("2d", { willReadFrequently: true });
     const dest = document.createElement("canvas");
-    dest.width = size;
-    dest.height = size;
+    dest.width = width;
+    dest.height = height;
     const destContext = dest.getContext("2d");
     if (!sourceContext || !destContext) {
       return dest;
     }
     sourceContext.drawImage(frame, 0, 0);
     const pixels = sourceContext.getImageData(0, 0, frame.width, frame.height);
-    const scaled = destContext.createImageData(size, size);
-    for (let y = 0; y < size; y++) {
-      const sourceY = Math.min(frame.height - 1, Math.floor((y * frame.height) / size));
-      for (let x = 0; x < size; x++) {
-        const sourceX = Math.min(frame.width - 1, Math.floor((x * frame.width) / size));
+    const scaled = destContext.createImageData(width, height);
+    for (let y = 0; y < height; y++) {
+      const sourceY = Math.min(frame.height - 1, Math.floor((y * frame.height) / height));
+      for (let x = 0; x < width; x++) {
+        const sourceX = Math.min(frame.width - 1, Math.floor((x * frame.width) / width));
         const from = (sourceY * frame.width + sourceX) * 4;
-        const to = (y * size + x) * 4;
+        const to = (y * width + x) * 4;
         scaled.data[to] = pixels.data[from];
         scaled.data[to + 1] = pixels.data[from + 1];
         scaled.data[to + 2] = pixels.data[from + 2];
@@ -352,6 +393,89 @@ export class Game {
     destContext.putImageData(scaled, 0, 0);
     this.scaledSprites.set(key, dest);
     return dest;
+  }
+
+  private drawExplosions(context: CanvasRenderingContext2D): void {
+    if (!this.combat) {
+      return;
+    }
+    for (const blast of this.combat.explosions()) {
+      context.beginPath();
+      context.arc(blast.x, blast.y, blast.radius, 0, Math.PI * 2);
+      context.fillStyle = `rgba(255, 140, 0, ${0.25 * blast.alpha})`;
+      context.fill();
+      context.strokeStyle = `rgba(255, 180, 0, ${0.75 * blast.alpha})`;
+      context.lineWidth = 2;
+      context.stroke();
+    }
+  }
+
+  private drawFireballs(context: CanvasRenderingContext2D, view: WorldView): void {
+    if (!this.combat) {
+      return;
+    }
+    const style = combatConfig.wizard.fireball;
+    for (const ball of this.combat.projectiles()) {
+      const image = this.combat.fireballSprite(ball.traveled);
+      if (!image) {
+        continue;
+      }
+      const destW = Math.max(1, Math.round(style.visualWidth * view.scale));
+      const destH = Math.max(1, Math.round(destW * (image.height / image.width)));
+      const bitmap = this.crispFrame(image, destW, destH);
+      const x = ball.x * view.scale + view.originX;
+      const y = ball.y * view.scale + view.originY;
+      context.save();
+      context.imageSmoothingEnabled = false;
+      context.translate(x, y);
+      // The sprite points right, so this rotation aims the core along the shot.
+      context.rotate(Math.atan2(ball.directionY, ball.directionX));
+      context.drawImage(bitmap, -style.pivotX * destW, -style.pivotY * destH);
+      context.restore();
+    }
+  }
+
+  private drawCombatDebug(context: CanvasRenderingContext2D, view: WorldView, player: Player): void {
+    if (!this.combat) {
+      return;
+    }
+    context.lineWidth = 1;
+    for (const circle of this.combat.bodyCircles(player.x, player.y)) {
+      const x = circle.x * view.scale + view.originX;
+      const y = circle.y * view.scale + view.originY;
+      context.strokeStyle = "#7dffb2";
+      context.beginPath();
+      context.arc(x, y, circle.radius * view.scale, 0, Math.PI * 2);
+      context.stroke();
+    }
+    for (const ball of this.combat.projectiles()) {
+      const x = ball.x * view.scale + view.originX;
+      const y = ball.y * view.scale + view.originY;
+      context.strokeStyle = "#ff9a3c";
+      context.beginPath();
+      context.arc(x, y, 4 * view.scale, 0, Math.PI * 2);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineTo(x + ball.directionX * 28 * view.scale, y + ball.directionY * 28 * view.scale);
+      context.stroke();
+    }
+    for (const blast of this.combat.explosions()) {
+      context.strokeStyle = "#ff6a00";
+      context.beginPath();
+      context.arc(
+        blast.x * view.scale + view.originX,
+        blast.y * view.scale + view.originY,
+        blast.radius * view.scale,
+        0,
+        Math.PI * 2,
+      );
+      context.stroke();
+    }
+    const aimX = this.aim.x * view.scale + view.originX;
+    const aimY = this.aim.y * view.scale + view.originY;
+    context.strokeStyle = "#ffffff";
+    context.strokeRect(aimX - 3, aimY - 3, 6, 6);
   }
 
   private drawHealthBars(context: CanvasRenderingContext2D, view: WorldView): void {
@@ -455,10 +579,15 @@ export class Game {
   private drawDebugText(context: CanvasRenderingContext2D, player: Player, dpr: number): void {
     const state = player.moving ? "running" : "idle";
     const rotations = this.map?.hallways.map((hallway) => `${hallway.rotation}°`).join(" ") || "none";
+    const shots = this.combat?.projectiles() ?? [];
+    const blasts = this.combat?.explosions() ?? [];
     const lines = [
-      `player ${player.x.toFixed(1)}, ${player.y.toFixed(1)}   facing ${player.facing}   ${state}`,
+      `class ${player.classType}   player ${player.x.toFixed(1)}, ${player.y.toFixed(1)}   facing ${player.facing}   ${state}`,
       `camera ${this.camera.x.toFixed(1)}, ${this.camera.y.toFixed(1)}   zoom ${this.camera.zoom.toFixed(2)}`,
-      `speed ${gameConfig.moveSpeed} px/s   seed ${this.map?.seed ?? "-"}`,
+      `mouse world ${this.aim.x.toFixed(1)}, ${this.aim.y.toFixed(1)}   cooldown ${(this.combat?.attackCooldown() ?? 0).toFixed(2)}s`,
+      `fireballs ${shots.map((shot) => `${shot.traveled.toFixed(0)}/${shot.maxRange}`).join(" ") || "none"}`,
+      `explosions ${blasts.map((blast) => `r${blast.radius} hits ${blast.hits}`).join(" ") || "none"}`,
+      `speed ${adventurerConfig[player.classType].movementSpeed} px/s   seed ${this.map?.seed ?? "-"}`,
       `rooms ${this.map?.rooms.length ?? 0}   hallways ${this.map?.hallways.length ?? 0}`,
       `hallway rotations ${rotations}`,
       "+ / - zoom    R reset    F3 hides this overlay",
@@ -476,10 +605,15 @@ export class Game {
     });
   }
 
+  private focusOffset(): number {
+    const stats = adventurerConfig[this.adventurer];
+    return -(stats.footAnchorY - 64) * stats.scale;
+  }
+
   private drawMessage(context: CanvasRenderingContext2D, message: string): void {
     const dpr = window.devicePixelRatio || 1;
     context.fillStyle = "#ffffff";
-    context.font = `${Math.round(16 * dpr)}px ui-monospace, monospace`;
+    context.font = `${Math.round(12 * dpr)}px "Press Start 2P", monospace`;
     context.textBaseline = "top";
     const maxWidth = this.canvas.width - 48 * dpr;
     const words = message.split(" ");
@@ -499,10 +633,6 @@ export class Game {
       context.fillText(line, 24 * dpr, y);
     }
   }
-}
-
-function cameraFocusOffset(): number {
-  return cameraConfig.focusOffsetY * gameConfig.sprite.scale;
 }
 
 function overlapsView(x: number, y: number, width: number, height: number, view: WorldView): boolean {

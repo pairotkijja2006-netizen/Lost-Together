@@ -43,6 +43,14 @@ export class Camera {
     this.zoom = Math.min(cameraConfig.maxZoom, Math.max(cameraConfig.minZoom, next));
   }
 
+  // CSS-pixel mouse position to world pixels. Zoom is the camera zoom, not the device-pixel scale.
+  screenToWorld(cssX: number, cssY: number, cssWidth: number, cssHeight: number): { x: number; y: number } {
+    return {
+      x: (cssX - cssWidth / 2) / this.zoom + this.x,
+      y: (cssY - cssHeight / 2) / this.zoom + this.y,
+    };
+  }
+
   // Screen position is (world - camera) * zoom, in device pixels, plus the canvas center.
   view(canvasWidth: number, canvasHeight: number, dpr: number): WorldView {
     const scale = this.zoom * dpr;

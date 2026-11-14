@@ -17,8 +17,16 @@ export class InputManager {
   private onDebug: () => void;
   private onZoom: (action: ZoomAction) => void;
   private attackPressed = false;
+  private attackHeld = false;
+  private mouseX = 0;
+  private mouseY = 0;
+  private onMouseMove: (event: MouseEvent) => void;
 
-  constructor(onDebug: () => void, onZoom: (action: ZoomAction) => void) {
+  constructor(
+    private canvas: HTMLCanvasElement,
+    onDebug: () => void,
+    onZoom: (action: ZoomAction) => void,
+  ) {
     this.onDebug = onDebug;
     this.onZoom = onZoom;
     this.onKeyDown = (event) => {
@@ -48,6 +56,7 @@ export class InputManager {
       }
       if (event.code === "Space") {
         event.preventDefault();
+        this.attackHeld = true;
         if (!event.repeat) {
           this.attackPressed = true;
         }
@@ -62,21 +71,32 @@ export class InputManager {
     };
     this.onKeyUp = (event) => {
       this.held.delete(event.code);
+      if (event.code === "Space") {
+        this.attackHeld = false;
+      }
     };
     this.onBlur = () => {
       this.held.clear();
       this.attackPressed = false;
+      this.attackHeld = false;
+    };
+    this.onMouseMove = (event) => {
+      const bounds = this.canvas.getBoundingClientRect();
+      this.mouseX = event.clientX - bounds.left;
+      this.mouseY = event.clientY - bounds.top;
     };
 
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
+    this.canvas.addEventListener("mousemove", this.onMouseMove);
   }
 
   dispose(): void {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
+    this.canvas.removeEventListener("mousemove", this.onMouseMove);
     this.held.clear();
   }
 
@@ -84,6 +104,16 @@ export class InputManager {
     const pressed = this.attackPressed;
     this.attackPressed = false;
     return pressed;
+  }
+
+  // True while Space is held, so the wizard can fire again as soon as the cooldown ends.
+  attackDown(): boolean {
+    return this.attackHeld;
+  }
+
+  // Mouse position in CSS pixels relative to the canvas.
+  mouse(): { x: number; y: number } {
+    return { x: this.mouseX, y: this.mouseY };
   }
 
   // Unit vector. Diagonals are divided by sqrt(2) so they are not faster.

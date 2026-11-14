@@ -1,4 +1,3 @@
-import { scaledHitbox } from "../config/gameConfig";
 import type { DungeonMap } from "./DungeonMap";
 import type { Rect } from "./Player";
 
@@ -9,13 +8,14 @@ const MAX_STEP = 8;
 export class CollisionSystem {
   // Moves the hitbox by dx/dy. A blocked axis is dropped so the other axis
   // can still slide along the wall.
+  // Returns how far the body can move. Callers add this to their own foot position,
+  // so a different sprite scale does not get converted back through the knight's offset.
   move(map: DungeonMap, box: Rect, dx: number, dy: number): { x: number; y: number } {
     const x = slide(map, box, dx, true);
     const y = slide(map, { ...box, x }, dy, false);
-    const feet = scaledHitbox();
     return {
-      x: x - feet.offsetX,
-      y: y - feet.offsetY,
+      x: x - box.x,
+      y: y - box.y,
     };
   }
 }

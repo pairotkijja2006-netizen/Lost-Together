@@ -1,7 +1,7 @@
 // Combat timings are in seconds. Distances are dungeon pixels.
 export const combatConfig = {
   knight: {
-    hearts: 3,
+    hearts: 5,
     // Body box used when a goblin slash connects. Offset from the feet.
     bodyWidth: 28,
     bodyHeight: 36,
@@ -11,9 +11,9 @@ export const combatConfig = {
   // Cooldown is the minimum time between swing starts. The swing itself is shorter.
   knightSlash: {
     visualScale: 1.5,
-    forwardOffset: 40,
+    forwardOffset: 54,
     duration: 0.15,
-    cooldown: 0.2,
+    cooldown: 0.7,
     activeStart: 0.02,
     activeEnd: 0.13,
     hitWidth: 48,
@@ -32,11 +32,15 @@ export const combatConfig = {
     // Feet sit near the bottom of the 128px frame.
     footAnchorX: 64,
     footAnchorY: 121,
+    // The goblin art is taller than the knight's. 0.58 draws it just under the knight's height.
+    scale: 0.58,
+    // Circle around the feet used so goblins cannot occupy the same space.
+    bodyRadius: 9,
   },
   goblinSlash: {
     visualScale: 0.8,
-    forwardOffset: 24,
-    duration: 0.2,
+    forwardOffset: 36,
+    duration: 0.13,
     activeStart: 0.04,
     activeEnd: 0.16,
     hitWidth: 32,
@@ -51,10 +55,34 @@ export const combatConfig = {
     attackDuration: 0.2,
     attackRecovery: 0.15,
   },
+  wizard: {
+    maxHealth: 5,
+    movementSpeed: 140,
+    fireball: {
+      cooldown: 1,
+      speed: 450,
+      maxRange: 350,
+      // The blast is the only damage. A direct hit is not counted a second time.
+      directDamage: 0,
+      splashDamage: 1,
+      explosionRadius: 65,
+      explosionDuration: 0.25,
+      // How far in front of the feet the projectile appears.
+      muzzle: 22,
+      originOffsetY: -28,
+      visualRadius: 6,
+      // Drawn size in world pixels. The art faces right; pivot sits on the bright core.
+      visualWidth: 48,
+      pivotX: 0.791,
+      pivotY: 0.478,
+      // Distance traveled, in pixels, before the fireball swaps to its other frame.
+      frameLength: 28,
+    },
+  },
   damageFeedback: {
     goblin: {
       redFlashDuration: 0.2,
-      hitstunDuration: 0.3,
+      hitstunDuration: 0,
       interruptAttackOnHit: true,
     },
     knight: {
@@ -83,4 +111,6 @@ export const combatSpriteUrls = [
   `${combatRoot}/goblin_right_run_1.png`,
   `${combatRoot}/goblin_right_run_2.png`,
   `${combatRoot}/goblin_right_run_3.png`,
+  `${combatRoot}/fireball_1.png`,
+  `${combatRoot}/fireball_2.png`,
 ];

@@ -16,3 +16,97 @@ canvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
+
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("/fonts/PressStart2P-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+.select-screen,
+.game-over {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  color: #f4e7c5;
+  background: #120d0a;
+  font-family: "Press Start 2P", monospace;
+}
+
+.select-screen h1,
+.game-over h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.6;
+  letter-spacing: 0;
+}
+
+.select-cards {
+  display: flex;
+  gap: 24px;
+}
+
+.adventurer-card {
+  width: 340px;
+  padding: 18px;
+  color: #f4e7c5;
+  background: #1c1410;
+  border: 3px solid #6b4a2b;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.adventurer-card.selected {
+  border-color: #f0c14a;
+  background: #2a1d14;
+}
+
+.adventurer-card img {
+  width: 128px;
+  height: 128px;
+  image-rendering: pixelated;
+  background: #000;
+}
+
+.adventurer-card h2 {
+  margin: 14px 0 10px;
+  font-size: 14px;
+}
+
+.adventurer-card p {
+  margin: 0 0 12px;
+  font-size: 10px;
+  line-height: 1.8;
+}
+
+.adventurer-meta {
+  color: #d7b56d;
+}
+
+.start-adventure,
+.game-over button {
+  padding: 12px 22px;
+  color: #1a120c;
+  background: #f0c14a;
+  border: 3px solid #8a6420;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.start-adventure:disabled {
+  background: #5a5348;
+  color: #2a2622;
+  cursor: default;
+}
+
+.game-over {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+}
