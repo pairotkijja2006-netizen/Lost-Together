@@ -1,4 +1,4 @@
-import { gameConfig } from "../config/gameConfig";
+import { scaledHitbox } from "../config/gameConfig";
 import type { Facing } from "../config/spriteConfig";
 
 export interface Rect {
@@ -21,7 +21,7 @@ export class Player {
   }
 
   hitbox(): Rect {
-    const { width, height, offsetX, offsetY } = gameConfig.hitbox;
+    const { width, height, offsetX, offsetY } = scaledHitbox();
     return {
       x: this.x + offsetX,
       y: this.y + offsetY,

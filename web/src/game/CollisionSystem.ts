@@ -1,4 +1,4 @@
-import { gameConfig } from "../config/gameConfig";
+import { scaledHitbox } from "../config/gameConfig";
 import type { DungeonMap } from "./DungeonMap";
 import type { Rect } from "./Player";
 
@@ -12,9 +12,10 @@ export class CollisionSystem {
   move(map: DungeonMap, box: Rect, dx: number, dy: number): { x: number; y: number } {
     const x = slide(map, box, dx, true);
     const y = slide(map, { ...box, x }, dy, false);
+    const feet = scaledHitbox();
     return {
-      x: x - gameConfig.hitbox.offsetX,
-      y: y - gameConfig.hitbox.offsetY,
+      x: x - feet.offsetX,
+      y: y - feet.offsetY,
     };
   }
 }

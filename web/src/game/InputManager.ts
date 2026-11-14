@@ -1,3 +1,4 @@
+import type { ZoomAction } from "../config/cameraConfig";
 import type { Facing } from "../config/spriteConfig";
 
 const MOVE_CODES = new Set(["KeyW", "KeyA", "KeyS", "KeyD"]);
@@ -14,14 +15,41 @@ export class InputManager {
   private onKeyUp: (event: KeyboardEvent) => void;
   private onBlur: () => void;
   private onDebug: () => void;
+  private onZoom: (action: ZoomAction) => void;
+  private attackPressed = false;
 
-  constructor(onDebug: () => void) {
+  constructor(onDebug: () => void, onZoom: (action: ZoomAction) => void) {
     this.onDebug = onDebug;
+    this.onZoom = onZoom;
     this.onKeyDown = (event) => {
       if (event.code === "F3") {
         event.preventDefault();
         if (!event.repeat) {
           this.onDebug();
+        }
+        return;
+      }
+      if (event.key === "+" || event.key === "=" || event.code === "NumpadAdd") {
+        event.preventDefault();
+        this.onZoom("in");
+        return;
+      }
+      if (event.key === "-" || event.key === "_" || event.code === "Minus" || event.code === "NumpadSubtract") {
+        event.preventDefault();
+        this.onZoom("out");
+        return;
+      }
+      if (event.code === "KeyR") {
+        event.preventDefault();
+        if (!event.repeat) {
+          this.onZoom("reset");
+        }
+        return;
+      }
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (!event.repeat) {
+          this.attackPressed = true;
         }
         return;
       }
@@ -37,6 +65,7 @@ export class InputManager {
     };
     this.onBlur = () => {
       this.held.clear();
+      this.attackPressed = false;
     };
 
     window.addEventListener("keydown", this.onKeyDown);
@@ -49,6 +78,12 @@ export class InputManager {
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
     this.held.clear();
+  }
+
+  consumeAttack(): boolean {
+    const pressed = this.attackPressed;
+    this.attackPressed = false;
+    return pressed;
   }
 
   // Unit vector. Diagonals are divided by sqrt(2) so they are not faster.

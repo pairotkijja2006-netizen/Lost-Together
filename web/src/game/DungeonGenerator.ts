@@ -1,4 +1,4 @@
-import { gameConfig } from "../config/gameConfig";
+import { gameConfig, scaledHitbox } from "../config/gameConfig";
 
 export const North = 1;
 export const East = 2;
@@ -20,6 +20,7 @@ export interface GeneratedCorridor {
   y: number;
   width: number;
   height: number;
+  direction: number;
 }
 
 export interface GeneratedDungeon {
@@ -81,7 +82,7 @@ export function generateDungeon(seed = randomSeed()): GeneratedDungeon {
     corridor.y += shiftY;
   }
 
-  const { width, height, offsetX, offsetY } = gameConfig.hitbox;
+  const { width, height, offsetX, offsetY } = scaledHitbox();
   return {
     seed,
     rooms: rooms.map(toGenerated),
@@ -147,7 +148,7 @@ function placeChildAt(
     const doorY = room.y + Math.floor(room.height / 2);
     let x = 0;
     let y = 0;
-    const corridor: GeneratedCorridor = { x: 0, y: 0, width: 0, height: 0 };
+    const corridor: GeneratedCorridor = { x: 0, y: 0, width: 0, height: 0, direction };
     if (direction === East) {
       x = room.x + room.width + gap;
       y = doorY - Math.floor(childSize.height / 2);

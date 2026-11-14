@@ -1,40 +1,77 @@
-import { gameConfig } from "../config/gameConfig";
+import { gameConfig, scaledHitbox } from "../config/gameConfig";
+import { hallwaySheet } from "../config/dungeonConfig";
 import {
+  East,
   generateDungeon,
-  type GeneratedCorridor,
+  North,
+  South,
+  West,
   type GeneratedRoom,
 } from "./DungeonGenerator";
+import {
+  corridorFootprint,
+  hallwayCells,
+  HallwayTiles,
+  placeHallway,
+  validateHallwaySheet,
+  type PlacedHallway,
+} from "./Hallway";
+
+export const TileVoid = 0;
+export const TileRoomWall = 1;
+export const TileRoomFloor = 2;
+export const TileHallWall = 3;
+export const TileHallFloor = 4;
 
 export interface DrawnRoom {
   image: HTMLImageElement;
   x: number;
   y: number;
+  width: number;
+  height: number;
+  doors: number;
+  type: string;
+}
+
+export interface Doorway {
+  // Unit vector from this opening toward the room interior.
+  inwardX: number;
+  inwardY: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export class DungeonMap {
   readonly rooms: DrawnRoom[];
-  readonly corridors: GeneratedCorridor[];
-  readonly solid: boolean[][];
+  readonly hallways: PlacedHallway[];
+  readonly hallwayTiles: HallwayTiles;
+  readonly kind: number[][];
   readonly tileSize: number;
   readonly tilesX: number;
   readonly tilesY: number;
   readonly seed: number;
   private readonly spawnPoint: { x: number; y: number };
+  private readonly lockedRooms = new Set<number>();
+  private readonly doorKinds = new Map<string, number>();
 
   private constructor(
     rooms: DrawnRoom[],
-    corridors: GeneratedCorridor[],
-    solid: boolean[][],
+    hallways: PlacedHallway[],
+    hallwayTiles: HallwayTiles,
+    kind: number[][],
     tileSize: number,
     seed: number,
     spawn: { x: number; y: number },
   ) {
     this.rooms = rooms;
-    this.corridors = corridors;
-    this.solid = solid;
+    this.hallways = hallways;
+    this.hallwayTiles = hallwayTiles;
+    this.kind = kind;
     this.tileSize = tileSize;
-    this.tilesX = solid[0]?.length ?? 0;
-    this.tilesY = solid.length;
+    this.tilesX = kind[0]?.length ?? 0;
+    this.tilesY = kind.length;
     this.seed = seed;
     this.spawnPoint = spawn;
   }
@@ -51,10 +88,10 @@ export class DungeonMap {
     if (ty < 0 || tx < 0 || ty >= this.tilesY || tx >= this.tilesX) {
       return true;
     }
-    return this.solid[ty][tx];
+    const kind = this.kind[ty][tx];
+    return kind === TileVoid || kind === TileRoomWall || kind === TileHallWall;
   }
 
-  // True when the rectangle touches a wall tile or leaves the dungeon image.
   overlapsSolid(x: number, y: number, width: number, height: number): boolean {
     if (width <= 0 || height <= 0) {
       return false;
@@ -74,29 +111,145 @@ export class DungeonMap {
     return false;
   }
 
+  // Seals an enemy room's doorways until its goblins are gone, then opens them again.
+  setRoomLocked(roomIndex: number, locked: boolean): void {
+    const room = this.rooms[roomIndex];
+    if (!room) {
+      return;
+    }
+    const already = this.lockedRooms.has(roomIndex);
+    if (locked === already) {
+      return;
+    }
+    for (const cell of doorCells(room, this.tileSize)) {
+      if (cell.ty < 0 || cell.tx < 0 || cell.ty >= this.tilesY || cell.tx >= this.tilesX) {
+        continue;
+      }
+      const key = `${cell.tx},${cell.ty}`;
+      if (locked) {
+        this.doorKinds.set(key, this.kind[cell.ty][cell.tx]);
+        this.kind[cell.ty][cell.tx] = TileRoomWall;
+      } else {
+        const previous = this.doorKinds.get(key);
+        if (previous !== undefined) {
+          this.kind[cell.ty][cell.tx] = previous;
+          this.doorKinds.delete(key);
+        }
+      }
+    }
+    if (locked) {
+      this.lockedRooms.add(roomIndex);
+    } else {
+      this.lockedRooms.delete(roomIndex);
+    }
+  }
+
+  isRoomLocked(roomIndex: number): boolean {
+    return this.lockedRooms.has(roomIndex);
+  }
+
+  // The three-tile opening on each side that has a door. These are the tiles setRoomLocked seals.
+  doorways(room: DrawnRoom): Doorway[] {
+    const tile = this.tileSize;
+    const originX = Math.round(room.x / tile);
+    const originY = Math.round(room.y / tile);
+    const tilesX = Math.round(room.width / tile);
+    const tilesY = Math.round(room.height / tile);
+    const midX = Math.floor(tilesX / 2);
+    const midY = Math.floor(tilesY / 2);
+    const span = tile * 3;
+    const doors: Doorway[] = [];
+    if (room.doors & North) {
+      doors.push({
+        inwardX: 0,
+        inwardY: 1,
+        x: (originX + midX - 1) * tile,
+        y: originY * tile,
+        width: span,
+        height: tile,
+      });
+    }
+    if (room.doors & South) {
+      doors.push({
+        inwardX: 0,
+        inwardY: -1,
+        x: (originX + midX - 1) * tile,
+        y: (originY + tilesY - 1) * tile,
+        width: span,
+        height: tile,
+      });
+    }
+    if (room.doors & East) {
+      doors.push({
+        inwardX: -1,
+        inwardY: 0,
+        x: (originX + tilesX - 1) * tile,
+        y: (originY + midY - 1) * tile,
+        width: tile,
+        height: span,
+      });
+    }
+    if (room.doors & West) {
+      doors.push({
+        inwardX: 1,
+        inwardY: 0,
+        x: originX * tile,
+        y: (originY + midY - 1) * tile,
+        width: tile,
+        height: span,
+      });
+    }
+    return doors;
+  }
+
   static async load(): Promise<DungeonMap> {
+    validateHallwaySheet();
     const dungeon = generateDungeon();
     const tileSize = gameConfig.tileSize;
     const images = new Map<string, HTMLImageElement>();
-    for (const room of dungeon.rooms) {
-      if (!images.has(room.imageUrl)) {
-        images.set(room.imageUrl, await loadImage(room.imageUrl));
-      }
-    }
+    const urls = new Set(dungeon.rooms.map((room) => room.imageUrl));
+    urls.add(hallwaySheet.url);
+    await Promise.all(
+      [...urls].map(async (url) => {
+        images.set(url, await loadImage(url));
+      }),
+    );
 
+    // Wall tiles sit one tile outside the floor. Shift the dungeon so they stay on the grid.
+    let minX = 0;
+    let minY = 0;
     let maxX = 0;
     let maxY = 0;
+    const include = (x: number, y: number, width: number, height: number) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + width);
+      maxY = Math.max(maxY, y + height);
+    };
     for (const room of dungeon.rooms) {
-      maxX = Math.max(maxX, room.x + room.width);
-      maxY = Math.max(maxY, room.y + room.height);
+      include(room.x, room.y, room.width, room.height);
     }
     for (const corridor of dungeon.corridors) {
-      maxX = Math.max(maxX, corridor.x + corridor.width);
-      maxY = Math.max(maxY, corridor.y + corridor.height);
+      const footprint = corridorFootprint(corridor);
+      include(footprint.x, footprint.y, footprint.width, footprint.height);
     }
-    const tilesX = Math.round(maxX / tileSize);
-    const tilesY = Math.round(maxY / tileSize);
-    const solid = Array.from({ length: tilesY }, () => Array<boolean>(tilesX).fill(true));
+    const shiftX = -minX;
+    const shiftY = -minY;
+    for (const room of dungeon.rooms) {
+      room.x += shiftX;
+      room.y += shiftY;
+    }
+    for (const corridor of dungeon.corridors) {
+      corridor.x += shiftX;
+      corridor.y += shiftY;
+    }
+    dungeon.spawn.x += shiftX;
+    dungeon.spawn.y += shiftY;
+
+    const hallways = dungeon.corridors.map(placeHallway);
+    const tilesX = Math.round((maxX - minX) / tileSize);
+    const tilesY = Math.round((maxY - minY) / tileSize);
+    const kind = Array.from({ length: tilesY }, () => Array<number>(tilesX).fill(TileVoid));
 
     const drawn: DrawnRoom[] = [];
     for (const room of dungeon.rooms) {
@@ -107,24 +260,68 @@ export class DungeonMap {
       if (image.width !== room.width || image.height !== room.height) {
         throw new Error(`${room.imageUrl} is ${image.width}x${image.height}, expected ${room.width}x${room.height}.`);
       }
-      stampRoom(solid, room, tilesForImage(image, tileSize), tileSize);
-      drawn.push({ image, x: room.x, y: room.y });
+      stampRoom(kind, room, solidFromArtwork(image, tileSize), tileSize);
+      drawn.push({
+        image,
+        x: room.x,
+        y: room.y,
+        width: room.width,
+        height: room.height,
+        doors: room.doors,
+        type: room.type,
+      });
     }
-    for (const corridor of dungeon.corridors) {
-      stampWalkable(solid, corridor, tileSize);
+    for (const hallway of hallways) {
+      stampHallway(kind, hallway, tileSize);
     }
 
-    return new DungeonMap(drawn, dungeon.corridors, solid, tileSize, dungeon.seed, dungeon.spawn);
+    const sheet = images.get(hallwaySheet.url);
+    if (!sheet) {
+      throw new Error(`Missing ${hallwaySheet.url}`);
+    }
+    return new DungeonMap(
+      drawn,
+      hallways,
+      new HallwayTiles(sheet),
+      kind,
+      tileSize,
+      dungeon.seed,
+      dungeon.spawn,
+    );
   }
 
   findSpawn(): { x: number; y: number } {
     const { x, y } = this.spawnPoint;
-    const box = gameConfig.hitbox;
+    const box = scaledHitbox();
     if (!this.overlapsSolid(x + box.offsetX, y + box.offsetY, box.width, box.height)) {
       return { x, y };
     }
     throw new Error("The starting room spawn is blocked.");
   }
+}
+
+function doorCells(room: DrawnRoom, tileSize: number): { tx: number; ty: number }[] {
+  const originX = Math.round(room.x / tileSize);
+  const originY = Math.round(room.y / tileSize);
+  const tilesX = Math.round(room.width / tileSize);
+  const tilesY = Math.round(room.height / tileSize);
+  const midX = Math.floor(tilesX / 2);
+  const midY = Math.floor(tilesY / 2);
+  const cells: { tx: number; ty: number }[] = [];
+  const across = [-1, 0, 1];
+  if (room.doors & North) {
+    for (const offset of across) cells.push({ tx: originX + midX + offset, ty: originY });
+  }
+  if (room.doors & South) {
+    for (const offset of across) cells.push({ tx: originX + midX + offset, ty: originY + tilesY - 1 });
+  }
+  if (room.doors & East) {
+    for (const offset of across) cells.push({ tx: originX + tilesX - 1, ty: originY + midY + offset });
+  }
+  if (room.doors & West) {
+    for (const offset of across) cells.push({ tx: originX, ty: originY + midY + offset });
+  }
+  return cells;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -136,29 +333,34 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-function tilesForImage(image: HTMLImageElement, tileSize: number): boolean[][] {
-  return solidFromArtwork(image, tileSize);
-}
-
-function stampRoom(solid: boolean[][], room: GeneratedRoom, tiles: boolean[][], tileSize: number): void {
+function stampRoom(kind: number[][], room: GeneratedRoom, tiles: boolean[][], tileSize: number): void {
   const originX = Math.round(room.x / tileSize);
   const originY = Math.round(room.y / tileSize);
   for (let ty = 0; ty < tiles.length; ty++) {
     for (let tx = 0; tx < tiles[ty].length; tx++) {
-      solid[originY + ty][originX + tx] = tiles[ty][tx];
+      const gx = originX + tx;
+      const gy = originY + ty;
+      if (gy < 0 || gx < 0 || gy >= kind.length || gx >= kind[0].length) {
+        throw new Error("A room tile falls outside the dungeon grid.");
+      }
+      kind[gy][gx] = tiles[ty][tx] ? TileRoomWall : TileRoomFloor;
     }
   }
 }
 
-function stampWalkable(solid: boolean[][], corridor: GeneratedCorridor, tileSize: number): void {
-  const x0 = Math.round(corridor.x / tileSize);
-  const y0 = Math.round(corridor.y / tileSize);
-  const x1 = Math.round((corridor.x + corridor.width) / tileSize);
-  const y1 = Math.round((corridor.y + corridor.height) / tileSize);
-  for (let ty = y0; ty < y1; ty++) {
-    for (let tx = x0; tx < x1; tx++) {
-      solid[ty][tx] = false;
+function stampHallway(kind: number[][], hallway: PlacedHallway, tileSize: number): void {
+  for (const cell of hallwayCells(hallway)) {
+    const gx = Math.round(cell.x / tileSize);
+    const gy = Math.round(cell.y / tileSize);
+    if (gy < 0 || gx < 0 || gy >= kind.length || gx >= kind[0].length) {
+      throw new Error("A hallway tile falls outside the dungeon grid.");
     }
+    const existing = kind[gy][gx];
+    // Room doorway floors stay open. A hallway wall never covers them.
+    if (existing === TileRoomFloor || existing === TileRoomWall) {
+      continue;
+    }
+    kind[gy][gx] = cell.solid ? TileHallWall : TileHallFloor;
   }
 }
 

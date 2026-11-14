@@ -14,15 +14,17 @@ export const gameConfig = {
 
   // Same shape as Dungeon::generate(3): start, two enemy rooms, side rooms, final room.
   mainPathSteps: 3,
-  corridorGap: 128,
+  // Length of each hallway, in pixels. 128 is one segment; 384 is three of those end to end.
+  corridorGap: 384,
   doorWidth: 96,
-  corridorColor: "rgb(126, 163, 171)",
 
   sprite: {
     frameSize: 128,
     // Every supplied frame places the feet near this pixel.
     footAnchorX: 64,
     footAnchorY: 115,
+    // 1 draws the knight at the frame's full 128px. Lower values draw a smaller character.
+    scale: 0.7,
   },
 
   // Small box at the feet. The rest of the sprite may overlap a wall visually.
@@ -34,3 +36,20 @@ export const gameConfig = {
     offsetY: -14,
   },
 };
+
+// Hitbox at the feet, shrunk by the same amount as the drawn sprite.
+export function scaledHitbox(): {
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+} {
+  const scale = gameConfig.sprite.scale;
+  const box = gameConfig.hitbox;
+  return {
+    width: box.width * scale,
+    height: box.height * scale,
+    offsetX: box.offsetX * scale,
+    offsetY: box.offsetY * scale,
+  };
+}
