@@ -1,0 +1,371 @@
+{
+  "tileSize": 32,
+  "doorWidth": 96,
+  "corridorGap": 128,
+  "rooms": [
+    {
+      "file": "room_large_E.png",
+      "size": "large",
+      "openings": "E",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_ES.png",
+      "size": "large",
+      "openings": "ES",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_ESW.png",
+      "size": "large",
+      "openings": "ESW",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_EW.png",
+      "size": "large",
+      "openings": "EW",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_N.png",
+      "size": "large",
+      "openings": "N",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_NE.png",
+      "size": "large",
+      "openings": "NE",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_NES.png",
+      "size": "large",
+      "openings": "NES",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_NESW.png",
+      "size": "large",
+      "openings": "NESW",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_NEW.png",
+      "size": "large",
+      "openings": "NEW",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_NS.png",
+      "size": "large",
+      "openings": "NS",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_NSW.png",
+      "size": "large",
+      "openings": "NSW",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_NW.png",
+      "size": "large",
+      "openings": "NW",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_S.png",
+      "size": "large",
+      "openings": "S",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_SW.png",
+      "size": "large",
+      "openings": "SW",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_W.png",
+      "size": "large",
+      "openings": "W",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_large_none.png",
+      "size": "large",
+      "openings": "none",
+      "width": 672,
+      "height": 608
+    },
+    {
+      "file": "room_medium_E.png",
+      "size": "medium",
+      "openings": "E",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_ES.png",
+      "size": "medium",
+      "openings": "ES",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_ESW.png",
+      "size": "medium",
+      "openings": "ESW",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_EW.png",
+      "size": "medium",
+      "openings": "EW",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_N.png",
+      "size": "medium",
+      "openings": "N",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_NE.png",
+      "size": "medium",
+      "openings": "NE",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_NES.png",
+      "size": "medium",
+      "openings": "NES",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_NESW.png",
+      "size": "medium",
+      "openings": "NESW",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_NEW.png",
+      "size": "medium",
+      "openings": "NEW",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_NS.png",
+      "size": "medium",
+      "openings": "NS",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_NSW.png",
+      "size": "medium",
+      "openings": "NSW",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_NW.png",
+      "size": "medium",
+      "openings": "NW",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_S.png",
+      "size": "medium",
+      "openings": "S",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_SW.png",
+      "size": "medium",
+      "openings": "SW",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_W.png",
+      "size": "medium",
+      "openings": "W",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_medium_none.png",
+      "size": "medium",
+      "openings": "none",
+      "width": 544,
+      "height": 480
+    },
+    {
+      "file": "room_small_E.png",
+      "size": "small",
+      "openings": "E",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_ES.png",
+      "size": "small",
+      "openings": "ES",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_ESW.png",
+      "size": "small",
+      "openings": "ESW",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_EW.png",
+      "size": "small",
+      "openings": "EW",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_N.png",
+      "size": "small",
+      "openings": "N",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_NE.png",
+      "size": "small",
+      "openings": "NE",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_NES.png",
+      "size": "small",
+      "openings": "NES",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_NESW.png",
+      "size": "small",
+      "openings": "NESW",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_NEW.png",
+      "size": "small",
+      "openings": "NEW",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_NS.png",
+      "size": "small",
+      "openings": "NS",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_NSW.png",
+      "size": "small",
+      "openings": "NSW",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_NW.png",
+      "size": "small",
+      "openings": "NW",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_S.png",
+      "size": "small",
+      "openings": "S",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_SW.png",
+      "size": "small",
+      "openings": "SW",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_W.png",
+      "size": "small",
+      "openings": "W",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_small_none.png",
+      "size": "small",
+      "openings": "none",
+      "width": 416,
+      "height": 352
+    },
+    {
+      "file": "room_start_E.png",
+      "size": "start",
+      "openings": "E",
+      "width": 288,
+      "height": 288
+    },
+    {
+      "file": "room_start_N.png",
+      "size": "start",
+      "openings": "N",
+      "width": 288,
+      "height": 288
+    },
+    {
+      "file": "room_start_S.png",
+      "size": "start",
+      "openings": "S",
+      "width": 288,
+      "height": 288
+    },
+    {
+      "file": "room_start_W.png",
+      "size": "start",
+      "openings": "W",
+      "width": 288,
+      "height": 288
+    }
+  ]
+}

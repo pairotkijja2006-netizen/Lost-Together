@@ -3,9 +3,23 @@
 
 using namespace std;
 
-Dungeon::Dungeon()
-    : start(nullptr), rng(time(nullptr)) {
+Dungeon::Dungeon(unsigned seed)
+    : start(nullptr),
+      seed_(seed == 0 ? static_cast<unsigned>(time(nullptr)) : seed),
+      rng(seed_) {
     // start as null becuase no room generated yet
+}
+
+unsigned Dungeon::seed() const {
+    return seed_;
+}
+
+Room* Dungeon::root() const {
+    return start;
+}
+
+std::mt19937& Dungeon::random() {
+    return rng;
 }
 
 Dungeon::~Dungeon() {
