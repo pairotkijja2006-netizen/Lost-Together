@@ -36,6 +36,8 @@ export class Game {
   private error: string | null = null;
   private onResize: () => void;
   private aim = { x: 0, y: 0 };
+  private abilityWasReady = true;
+  private abilityGlow = 0;
   // Integer-scaled copies of each frame, so the plume is not shaved off while moving.
   private scaledSprites = new Map<string, HTMLCanvasElement>();
 
@@ -160,6 +162,12 @@ export class Game {
     }
     this.camera.update(dt, player.x, player.y + this.focusOffset());
     this.frame = animation.update(displayFacing, player.moving, dt);
+    const ready = (this.combat?.attackCooldown() ?? 0) <= 0;
+    if (ready && !this.abilityWasReady) {
+      this.abilityGlow = 0.18;
+    }
+    this.abilityWasReady = ready;
+    this.abilityGlow = Math.max(0, this.abilityGlow - dt);
     if (this.combat?.isDefeated()) {
       this.defeated = true;
       this.onGameOver();
@@ -237,7 +245,19 @@ export class Game {
     context.imageSmoothingEnabled = false;
     if (this.combat) {
       for (const sprite of this.combat.worldSprites()) {
-        this.drawActor(context, sprite.image, view, sprite.feetX, sprite.feetY, sprite.anchorX, sprite.anchorY, sprite.tint, sprite.rotation, sprite.scale);
+        this.drawActor(
+          context,
+          sprite.image,
+          view,
+          sprite.feetX,
+          sprite.feetY,
+          sprite.anchorX,
+          sprite.anchorY,
+          sprite.tint,
+          sprite.rotation,
+          sprite.scale,
+          sprite.alpha,
+        );
       }
       for (const slash of this.combat.goblinSlashes()) {
         this.drawSlash(context, view, slash, gameConfig.sprite.scale);
@@ -262,8 +282,10 @@ export class Game {
     }
     if (this.combat) {
       this.drawFireballs(context, view);
+    this.drawArrows(context, view);
     }
     this.drawHearts(context, dpr);
+    this.drawAbility(context, dpr);
     if (this.debug && this.combat) {
       const box = player.hitbox();
       context.strokeStyle = "#ffe14a";
@@ -312,6 +334,7 @@ export class Game {
     tint: boolean,
     rotation: number,
     scale: number,
+    alpha = 1,
   ): void {
     const exactLeft = (feetX - anchorX * scale) * view.scale + view.originX;
     const exactTop = (feetY - anchorY * scale) * view.scale + view.originY;
@@ -324,8 +347,16 @@ export class Game {
       Math.ceil(exactTop + exactSize) - top,
     );
     const bitmap = tint ? this.redFrame(frame, size) : this.crispFrame(frame, size);
+    const faded = alpha < 0.999;
+    if (faded) {
+      context.save();
+      context.globalAlpha = alpha;
+    }
     if (rotation === 0) {
       context.drawImage(bitmap, left, top);
+      if (faded) {
+        context.restore();
+      }
       return;
     }
     context.save();
@@ -333,6 +364,9 @@ export class Game {
     context.rotate(rotation);
     context.drawImage(bitmap, -size / 2, -size / 2);
     context.restore();
+    if (faded) {
+      context.restore();
+    }
   }
 
   private redFrame(frame: HTMLImageElement, size: number): HTMLCanvasElement {
@@ -435,6 +469,30 @@ export class Game {
     }
   }
 
+  private drawArrows(context: CanvasRenderingContext2D, view: WorldView): void {
+    if (!this.combat) {
+      return;
+    }
+    const image = this.combat.arrowSprite();
+    if (!image) {
+      return;
+    }
+    const style = combatConfig.archerArrow;
+    for (const arrow of this.combat.flyingArrows()) {
+      const destW = Math.max(1, Math.round(style.visualWidth * view.scale));
+      const destH = Math.max(1, Math.round(destW * (image.height / image.width)));
+      const bitmap = this.crispFrame(image, destW, destH);
+      const x = arrow.x * view.scale + view.originX;
+      const y = arrow.y * view.scale + view.originY;
+      context.save();
+      context.imageSmoothingEnabled = false;
+      context.translate(x, y);
+      context.rotate(Math.atan2(arrow.directionY, arrow.directionX));
+      context.drawImage(bitmap, -style.pivotX * destW, -style.pivotY * destH);
+      context.restore();
+    }
+  }
+
   private drawCombatDebug(context: CanvasRenderingContext2D, view: WorldView, player: Player): void {
     if (!this.combat) {
       return;
@@ -476,6 +534,47 @@ export class Game {
     const aimY = this.aim.y * view.scale + view.originY;
     context.strokeStyle = "#ffffff";
     context.strokeRect(aimX - 3, aimY - 3, 6, 6);
+    const preferred = combatConfig.archer.preferredDistance;
+    for (const archer of this.combat.debugArchers()) {
+      const x = archer.x * view.scale + view.originX;
+      const y = archer.y * view.scale + view.originY;
+      context.strokeStyle = "#d2b4ff";
+      context.beginPath();
+      context.arc(x, y, preferred * view.scale, 0, Math.PI * 2);
+      context.stroke();
+      const body = combatConfig.archer;
+      context.strokeRect(
+        (archer.x + body.bodyOffsetX) * view.scale + view.originX,
+        (archer.y + body.bodyOffsetY) * view.scale + view.originY,
+        body.bodyWidth * view.scale,
+        body.bodyHeight * view.scale,
+      );
+    }
+    for (const arrow of this.combat.flyingArrows()) {
+      const x = arrow.x * view.scale + view.originX;
+      const y = arrow.y * view.scale + view.originY;
+      context.strokeStyle = "#ffe27a";
+      context.strokeRect(x - (arrow.size / 2) * view.scale, y - (arrow.size / 2) * view.scale, arrow.size * view.scale, arrow.size * view.scale);
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineTo(x + arrow.directionX * 36 * view.scale, y + arrow.directionY * 36 * view.scale);
+      context.stroke();
+    }
+    context.strokeStyle = "#7dffb2";
+    for (const spawn of this.combat.debugSpawns()) {
+      const x = spawn.x * view.scale + view.originX;
+      const y = spawn.y * view.scale + view.originY;
+      context.beginPath();
+      context.moveTo(x - 6, y);
+      context.lineTo(x + 6, y);
+      context.moveTo(x, y - 6);
+      context.lineTo(x, y + 6);
+      context.stroke();
+    }
+    context.strokeStyle = "#ffd25a";
+    for (const door of this.combat.debugDoors()) {
+      context.strokeRect(door.x * view.scale + view.originX, door.y * view.scale + view.originY, door.width * view.scale, door.height * view.scale);
+    }
   }
 
   private drawHealthBars(context: CanvasRenderingContext2D, view: WorldView): void {
@@ -511,6 +610,76 @@ export class Game {
         index < this.combat.hearts ? "#e23b3b" : "#3a3a3a",
       );
     }
+  }
+
+  // Screen-fixed ability slot. Fill comes from the combat cooldown, not a second timer.
+  private drawAbility(context: CanvasRenderingContext2D, dpr: number): void {
+    const combat = this.combat;
+    const player = this.player;
+    if (!combat || !player) {
+      return;
+    }
+    const total = combat.attackCooldownTotal();
+    const remaining = combat.attackCooldown();
+    const progress = total <= 0 ? 1 : Math.max(0, Math.min(1, 1 - remaining / total));
+    const ready = progress >= 1;
+
+    const slot = Math.round(52 * dpr);
+    const pad = Math.round(4 * dpr);
+    const barH = Math.round(5 * dpr);
+    const label = Math.round(12 * dpr);
+    const x = Math.round((this.canvas.width - slot) / 2);
+    const y = this.canvas.height - slot - label - Math.round(18 * dpr);
+
+    context.fillStyle = "#140e0a";
+    context.fillRect(x, y, slot, slot);
+    context.strokeStyle = this.abilityGlow > 0 ? "#fff1b0" : "#8a6420";
+    context.lineWidth = Math.max(2, Math.round(2 * dpr));
+    context.strokeRect(x + 1, y + 1, slot - 2, slot - 2);
+
+    const icon = slot - pad * 2 - barH - pad;
+    context.save();
+    context.globalAlpha = ready ? 1 : 0.45;
+    if (player.classType === "wizard") {
+      const image = combat.fireballSprite(0);
+      if (image) {
+        const bitmap = this.crispFrame(image, icon, Math.round(icon * (image.height / image.width)));
+        context.drawImage(bitmap, x + pad, y + pad + (icon - bitmap.height) / 2);
+      }
+    } else {
+      this.drawSwordIcon(context, x + pad, y + pad, icon);
+    }
+    context.restore();
+
+    const barX = x + pad;
+    const barY = y + slot - pad - barH;
+    const barW = slot - pad * 2;
+    context.fillStyle = "#2a2118";
+    context.fillRect(barX, barY, barW, barH);
+    context.fillStyle = ready ? "#ffe14a" : "#c8962e";
+    context.fillRect(barX, barY, barW * progress, barH);
+
+    context.font = `${Math.round(8 * dpr)}px "Press Start 2P", monospace`;
+    context.textAlign = "center";
+    context.textBaseline = "top";
+    context.fillStyle = "#f4e7c5";
+    context.fillText("SPACE", x + slot / 2, y + slot + Math.round(4 * dpr));
+    context.textAlign = "start";
+  }
+
+  private drawSwordIcon(context: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+    const u = size / 16;
+    context.fillStyle = "#f2efe6";
+    context.fillRect(x + u * 7, y, u * 2, u);
+    context.fillRect(x + u * 6, y + u, u * 4, u * 8);
+    context.fillStyle = "#b7b2a8";
+    context.fillRect(x + u * 7, y + u * 2, u * 2, u * 6);
+    context.fillStyle = "#e6b84a";
+    context.fillRect(x + u * 2, y + u * 9, u * 12, u * 2);
+    context.fillStyle = "#6b3a22";
+    context.fillRect(x + u * 6, y + u * 11, u * 4, u * 3);
+    context.fillStyle = "#c8962e";
+    context.fillRect(x + u * 5, y + u * 14, u * 6, u * 2);
   }
 
   private drawHeart(context: CanvasRenderingContext2D, x: number, y: number, size: number, color: string): void {
@@ -588,7 +757,11 @@ export class Game {
       `fireballs ${shots.map((shot) => `${shot.traveled.toFixed(0)}/${shot.maxRange}`).join(" ") || "none"}`,
       `explosions ${blasts.map((blast) => `r${blast.radius} hits ${blast.hits}`).join(" ") || "none"}`,
       `speed ${adventurerConfig[player.classType].movementSpeed} px/s   seed ${this.map?.seed ?? "-"}`,
-      `rooms ${this.map?.rooms.length ?? 0}   hallways ${this.map?.hallways.length ?? 0}`,
+      `rooms ${this.map?.rooms.length ?? 0}   hallways ${this.map?.hallways.length ?? 0}   enemies ${this.combat?.livingEnemies() ?? 0}`,
+      ...(this.combat?.debugArchers().map(
+        (archer) =>
+          `archer ${archer.state}   dist ${archer.distance.toFixed(0)}   draw ${(archer.draw * 100).toFixed(0)}%   cd ${archer.cooldown.toFixed(2)}s`,
+      ) ?? []),
       `hallway rotations ${rotations}`,
       "+ / - zoom    R reset    F3 hides this overlay",
     ];
