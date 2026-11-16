@@ -68,7 +68,11 @@ export class Game {
       this.combat = new Combat(map, combatImages, this.collision, this.adventurer);
       const spawn = map.findSpawn();
       this.player = new Player(spawn.x, spawn.y, this.adventurer);
-      this.animation = new AnimationController(images, spritesFor(this.adventurer));
+      this.animation = new AnimationController(
+        images,
+        spritesFor(this.adventurer),
+        this.adventurer === "wizard" ? 0.65 : 0,
+      );
       this.frame = this.animation.update(this.player.facing, false, 0);
       this.camera.snap(spawn.x, spawn.y + this.focusOffset());
       if (this.disposed) {
@@ -264,22 +268,24 @@ export class Game {
       }
       this.drawHealthBars(context, view);
     }
+    const render = stats.spriteRendering;
     this.drawActor(
       context,
       frame,
       view,
       player.x,
       player.y,
-      stats.footAnchorX,
-      stats.footAnchorY,
+      render.anchorX * frame.width + render.offsetX,
+      render.anchorY * frame.height + render.offsetY,
       this.combat?.knightFlashing() ?? false,
       0,
-      stats.scale,
+      render.scale,
     );
-    const slash = this.combat?.knightSlash(player.x, player.y);
-    if (slash) {
-      this.drawSlash(context, view, slash, stats.scale);
+    const knightSlash = this.combat?.knightSlash(player.x, player.y);
+    if (knightSlash) {
+      this.drawSlash(context, view, knightSlash, 1);
     }
+    this.drawCritical(context, view, dpr, player.x, player.y);
     if (this.combat) {
       this.drawFireballs(context, view);
     this.drawArrows(context, view);
@@ -304,25 +310,56 @@ export class Game {
     }
   }
 
-  // Spins the crescent around its own center, placed in front of the attacker.
+  // Spins a crescent around its own center, placed in front of the attacker.
   private drawSlash(context: CanvasRenderingContext2D, view: WorldView, slash: SlashDraw, characterScale: number): void {
     const scale = characterScale * slash.visualScale;
-    const exactSize = gameConfig.sprite.frameSize * scale * view.scale;
+    const source = slash.sourceSize ?? gameConfig.sprite.frameSize;
+    const exactSize = source * scale * view.scale;
     const size = Math.max(1, Math.round(exactSize));
     const bitmap = this.crispFrame(slash.image, size);
-    const pivotX = (slash.pivotX / gameConfig.sprite.frameSize) * size;
-    const pivotY = (slash.pivotY / gameConfig.sprite.frameSize) * size;
+    const pivotX = (slash.pivotX / source) * size;
+    const pivotY = (slash.pivotY / source) * size;
     const screenX = slash.x * view.scale + view.originX;
     const screenY = slash.y * view.scale + view.originY;
     context.save();
     context.imageSmoothingEnabled = false;
+    context.globalAlpha = slash.alpha ?? 1;
     context.translate(screenX, screenY);
     context.rotate(slash.rotation);
+    context.scale(slash.acrossScale ?? 1, 1);
     context.drawImage(bitmap, -pivotX, -pivotY);
     context.restore();
   }
 
-  // Draws a frame in device pixels, expanded to the outer pixel so the top is not shaved off.
+  // Red label above the knight after a vertical swing lands as a critical.
+  private drawCritical(
+    context: CanvasRenderingContext2D,
+    view: WorldView,
+    dpr: number,
+    feetX: number,
+    feetY: number,
+  ): void {
+    const life = this.combat?.criticalTime() ?? 0;
+    if (life <= 0) {
+      return;
+    }
+    const rise = (0.9 - life) * 36;
+    const screenX = feetX * view.scale + view.originX;
+    const screenY = feetY * view.scale + view.originY - 78 * view.scale - rise;
+    context.save();
+    context.globalAlpha = life < 0.25 ? life / 0.25 : 1;
+    context.font = `${Math.round(10 * dpr)}px "Press Start 2P", monospace`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.lineWidth = Math.max(2, Math.round(3 * dpr));
+    context.strokeStyle = "#3a0000";
+    context.strokeText("CRITICAL", screenX, screenY);
+    context.fillStyle = "#ff2a2a";
+    context.fillText("CRITICAL", screenX, screenY);
+    context.restore();
+  }
+
+  // Draws a frame in device pixels, at a single rounded size so rows and columns never shimmer while moving.
   private drawActor(
     context: CanvasRenderingContext2D,
     frame: HTMLImageElement,
@@ -338,15 +375,11 @@ export class Game {
   ): void {
     const exactLeft = (feetX - anchorX * scale) * view.scale + view.originX;
     const exactTop = (feetY - anchorY * scale) * view.scale + view.originY;
-    const exactSize = gameConfig.sprite.frameSize * scale * view.scale;
-    const left = Math.floor(exactLeft);
-    const top = Math.floor(exactTop);
-    const size = Math.max(
-      1,
-      Math.ceil(exactLeft + exactSize) - left,
-      Math.ceil(exactTop + exactSize) - top,
-    );
-    const bitmap = tint ? this.redFrame(frame, size) : this.crispFrame(frame, size);
+    const width = Math.max(1, Math.round(frame.width * scale * view.scale));
+    const height = Math.max(1, Math.round(frame.height * scale * view.scale));
+    const left = Math.round(exactLeft);
+    const top = Math.round(exactTop);
+    const bitmap = tint ? this.redFrame(frame, width, height) : this.crispFrame(frame, width, height);
     const faded = alpha < 0.999;
     if (faded) {
       context.save();
@@ -360,25 +393,25 @@ export class Game {
       return;
     }
     context.save();
-    context.translate(left + size / 2, top + size / 2);
+    context.translate(left + width / 2, top + height / 2);
     context.rotate(rotation);
-    context.drawImage(bitmap, -size / 2, -size / 2);
+    context.drawImage(bitmap, -width / 2, -height / 2);
     context.restore();
     if (faded) {
       context.restore();
     }
   }
 
-  private redFrame(frame: HTMLImageElement, size: number): HTMLCanvasElement {
-    const key = `${frame.src}@${size}@red`;
+  private redFrame(frame: HTMLImageElement, width: number, height: number): HTMLCanvasElement {
+    const key = `${frame.src}@${width}x${height}@red`;
     const cached = this.scaledSprites.get(key);
     if (cached) {
       return cached;
     }
-    const source = this.crispFrame(frame, size);
+    const source = this.crispFrame(frame, width, height);
     const dest = document.createElement("canvas");
-    dest.width = size;
-    dest.height = size;
+    dest.width = width;
+    dest.height = height;
     const destContext = dest.getContext("2d");
     if (!destContext) {
       return source;
@@ -387,7 +420,7 @@ export class Game {
     destContext.drawImage(source, 0, 0);
     destContext.globalCompositeOperation = "source-atop";
     destContext.fillStyle = "#ff1a1a";
-    destContext.fillRect(0, 0, size, size);
+    destContext.fillRect(0, 0, width, height);
     this.scaledSprites.set(key, dest);
     return dest;
   }
@@ -487,7 +520,8 @@ export class Game {
       context.save();
       context.imageSmoothingEnabled = false;
       context.translate(x, y);
-      context.rotate(Math.atan2(arrow.directionY, arrow.directionX));
+      // Rotates the sprite's forward tip (archer_arrow.png points along -X) onto the flight vector.
+      context.rotate(Math.atan2(arrow.directionY, arrow.directionX) - style.spriteForwardAngle);
       context.drawImage(bitmap, -style.pivotX * destW, -style.pivotY * destH);
       context.restore();
     }
@@ -647,7 +681,11 @@ export class Game {
         context.drawImage(bitmap, x + pad, y + pad + (icon - bitmap.height) / 2);
       }
     } else {
-      this.drawSwordIcon(context, x + pad, y + pad, icon);
+      const iconX = x + Math.round((slot - icon) / 2);
+      const iconTop = y + pad;
+      const iconArea = slot - pad * 2 - barH - pad;
+      const iconY = iconTop + Math.round((iconArea - icon) / 2);
+      this.drawSwordIcon(context, iconX, iconY, icon);
     }
     context.restore();
 
@@ -760,7 +798,7 @@ export class Game {
       `rooms ${this.map?.rooms.length ?? 0}   hallways ${this.map?.hallways.length ?? 0}   enemies ${this.combat?.livingEnemies() ?? 0}`,
       ...(this.combat?.debugArchers().map(
         (archer) =>
-          `archer ${archer.state}   dist ${archer.distance.toFixed(0)}   draw ${(archer.draw * 100).toFixed(0)}%   cd ${archer.cooldown.toFixed(2)}s`,
+          `archer ${archer.state}   dist ${archer.distance.toFixed(0)}   draw ${(archer.draw * 100).toFixed(0)}%   cd ${archer.cooldown.toFixed(2)}s   since ${archer.sinceShot.toFixed(2)}s   ${archer.inRange ? "in range" : "out of range"}   ${archer.los ? "los" : "blocked"}   ${archer.hold}`,
       ) ?? []),
       `hallway rotations ${rotations}`,
       "+ / - zoom    R reset    F3 hides this overlay",
@@ -780,7 +818,9 @@ export class Game {
 
   private focusOffset(): number {
     const stats = adventurerConfig[this.adventurer];
-    return -(stats.footAnchorY - 64) * stats.scale;
+    const render = stats.spriteRendering;
+    const footY = render.anchorY * stats.frameHeight + render.offsetY;
+    return -(footY - stats.frameHeight / 2) * render.scale;
   }
 
   private drawMessage(context: CanvasRenderingContext2D, message: string): void {

@@ -9,9 +9,11 @@ export class AnimationController {
   constructor(
     private images: Map<string, HTMLImageElement>,
     private sprites: Record<Facing, DirectionSprites>,
+    // Seconds each idle frame is held. 0 keeps idle on the shared run rate.
+    private idleHold = 0,
   ) {}
 
-  // Advances the run cycle from delta time. Idle frames stay on the last facing.
+  // Advances the run cycle from delta time. Idle frames stay crisp without blending two sprites together.
   update(facing: Facing, moving: boolean, dt: number): HTMLImageElement {
     const sprites = this.sprites[facing];
     const urls = moving ? sprites.run : sprites.idle;
@@ -22,9 +24,10 @@ export class AnimationController {
       this.elapsed = 0;
     }
 
+    const holding = !moving && this.idleHold > 0 && urls.length > 1;
+    const frameTime = holding ? this.idleHold : 1 / gameConfig.animationFps;
     if (urls.length > 1) {
       this.elapsed += dt;
-      const frameTime = 1 / gameConfig.animationFps;
       while (this.elapsed >= frameTime) {
         this.elapsed -= frameTime;
         this.frame = (this.frame + 1) % urls.length;

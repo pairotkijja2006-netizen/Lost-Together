@@ -1,15 +1,15 @@
 import type { Facing } from "../config/spriteConfig";
 
-// slash_right is a crescent whose thick side sits on the left of the frame
-// and whose opening faces right. These pivots are that crescent's center.
+// The crescent is a wide horizontal arch. Its outer edge points up, and the
+// pivot is the visual center of that arch, not the corner of the 128px frame.
 const PIVOTS = [
   { x: 52, y: 67 },
   { x: 52, y: 63 },
   { x: 52, y: 59 },
 ];
 
-// Added to the facing angle so the thick side points along the attack direction.
-const BULGE_OFFSET = Math.PI;
+// Screen-space angle of the unrotated sprite's outer edge. Up is -PI/2.
+const SPRITE_OUTWARD_ANGLE = -Math.PI / 2;
 
 export interface SlashDraw {
   image: HTMLImageElement;
@@ -19,7 +19,24 @@ export interface SlashDraw {
   visualScale: number;
   pivotX: number;
   pivotY: number;
+  alpha?: number;
+  // Stretches the crescent along the line between its tips. Goblin swings only.
+  acrossScale?: number;
+  // Pixel size of this image. Goblin crescents stay on the 128px frames.
+  sourceSize?: number;
 }
+
+// The knight swings are already drawn in the facing they belong to.
+export const KNIGHT_SLASH_SOURCE = 144;
+export const KNIGHT_SLASH_PIVOT_NATIVE = { x: 72, y: 72 };
+
+export function knightSlashUrl(facing: Facing, frame: number): string {
+  return `/combat/knight_slash_${facing.replace("-", "_")}_${frame}.png`;
+}
+
+export const knightSlashUrls: string[] = (
+  ["up", "down", "left", "right", "up-left", "up-right", "down-left", "down-right"] as Facing[]
+).flatMap((facing) => [0, 1, 2, 3].map((frame) => knightSlashUrl(facing, frame)));
 
 export function facingVector(facing: Facing): { x: number; y: number } {
   switch (facing) {
@@ -47,8 +64,9 @@ export function vectorAngle(x: number, y: number): number {
   return Math.atan2(y, x);
 }
 
+// Turns the arch so its outer center lies along the attack direction.
 export function slashRotation(directionAngle: number): number {
-  return directionAngle + BULGE_OFFSET;
+  return directionAngle - SPRITE_OUTWARD_ANGLE;
 }
 
 export function slashFrame(elapsed: number, duration: number): number {

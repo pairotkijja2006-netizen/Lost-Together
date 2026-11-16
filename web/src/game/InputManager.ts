@@ -1,5 +1,6 @@
 import type { ZoomAction } from "../config/cameraConfig";
 import type { Facing } from "../config/spriteConfig";
+import { gameAudio } from "./Sound";
 
 const MOVE_CODES = new Set(["KeyW", "KeyA", "KeyS", "KeyD"]);
 
@@ -21,6 +22,7 @@ export class InputManager {
   private mouseX = 0;
   private mouseY = 0;
   private onMouseMove: (event: MouseEvent) => void;
+  private onPointerDown: () => void;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -30,6 +32,7 @@ export class InputManager {
     this.onDebug = onDebug;
     this.onZoom = onZoom;
     this.onKeyDown = (event) => {
+      gameAudio.unlock();
       if (event.code === "F3") {
         event.preventDefault();
         if (!event.repeat) {
@@ -85,11 +88,15 @@ export class InputManager {
       this.mouseX = event.clientX - bounds.left;
       this.mouseY = event.clientY - bounds.top;
     };
+    this.onPointerDown = () => {
+      gameAudio.unlock();
+    };
 
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
     this.canvas.addEventListener("mousemove", this.onMouseMove);
+    this.canvas.addEventListener("pointerdown", this.onPointerDown);
   }
 
   dispose(): void {
@@ -97,6 +104,7 @@ export class InputManager {
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
     this.canvas.removeEventListener("mousemove", this.onMouseMove);
+    this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.held.clear();
   }
 

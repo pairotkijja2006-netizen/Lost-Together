@@ -3,6 +3,14 @@ import { gameConfig } from "./gameConfig";
 
 export type AdventurerClass = "knight" | "wizard";
 
+export interface SpriteRendering {
+  anchorX: number;
+  anchorY: number;
+  offsetX: number;
+  offsetY: number;
+  scale: number;
+}
+
 export interface AdventurerStats {
   label: string;
   description: string;
@@ -11,8 +19,11 @@ export interface AdventurerStats {
   maxHealth: number;
   movementSpeed: number;
   scale: number;
+  frameWidth: number;
+  frameHeight: number;
   footAnchorX: number;
   footAnchorY: number;
+  spriteRendering: SpriteRendering;
   bodyRadius: number;
   preview: string;
 }
@@ -26,11 +37,21 @@ export const adventurerConfig: Record<AdventurerClass, AdventurerStats> = {
     cooldown: combatConfig.knightSlash.cooldown,
     maxHealth: combatConfig.knight.hearts,
     movementSpeed: gameConfig.moveSpeed,
+    // Collision size stays put. The drawn frames are 181px, so the picture scale is separate.
     scale: gameConfig.sprite.scale,
-    footAnchorX: gameConfig.sprite.footAnchorX,
-    footAnchorY: gameConfig.sprite.footAnchorY,
+    frameWidth: 181,
+    frameHeight: 181,
+    footAnchorX: 90,
+    footAnchorY: 180,
+    spriteRendering: {
+      anchorX: 90 / 181,
+      anchorY: 180 / 181,
+      offsetX: 0,
+      offsetY: 0,
+      scale: 0.48,
+    },
     bodyRadius: 10,
-    preview: "/characters/knight_down_idle.png",
+    preview: "/characters/knight_down_idle_1.png",
   },
   wizard: {
     label: "Wizard",
@@ -39,11 +60,20 @@ export const adventurerConfig: Record<AdventurerClass, AdventurerStats> = {
     cooldown: combatConfig.wizard.fireball.cooldown,
     maxHealth: combatConfig.wizard.maxHealth,
     movementSpeed: combatConfig.wizard.movementSpeed,
-    // The wizard art is taller in the frame than the knight, so a slightly lower scale matches their height.
-    scale: 0.62,
-    footAnchorX: 64,
-    footAnchorY: 121,
+    // Collision size stays at 0.42. The drawn frames share one 109px canvas and one foot.
+    scale: 0.42,
+    frameWidth: 109,
+    frameHeight: 109,
+    footAnchorX: 53,
+    footAnchorY: 105,
+    spriteRendering: {
+      anchorX: 53 / 109,
+      anchorY: 105 / 109,
+      offsetX: 0,
+      offsetY: 0,
+      scale: 0.75,
+    },
     bodyRadius: 10,
-    preview: "/characters/wizard_down_idle.png",
+    preview: "/characters/wizard_down_idle_1.png",
   },
 };

@@ -17,16 +17,12 @@ const character = "/characters";
 
 function direction(name: string): DirectionSprites {
   return {
-    idle: [`${character}/knight_${name}_idle.png`],
-    run: [
-      `${character}/knight_${name}_run_left.png`,
-      `${character}/knight_${name}_run_right.png`,
-    ],
+    idle: [1, 2, 3].map((frame) => `${character}/knight_${name}_idle_${frame}.png`),
+    run: [1, 2, 3].map((frame) => `${character}/knight_${name}_run_${frame}.png`),
   };
 }
 
-// Filenames match the supplied frames. Each direction has one idle image
-// and a two-frame run cycle. No extra frames are generated.
+// Three idle frames and three run frames for every direction.
 export const spriteConfig: Record<Facing, DirectionSprites> = {
   up: direction("up"),
   down: direction("down"),
@@ -35,31 +31,33 @@ export const spriteConfig: Record<Facing, DirectionSprites> = {
   "up-left": direction("up_left"),
   "up-right": direction("up_right"),
   "down-left": direction("down_left"),
-  "down-right": direction("down_right"),
+  // The replacement run is two frames, both the same height as the idle.
+  "down-right": {
+    idle: direction("down_right").idle,
+    run: [1, 2].map((frame) => `${character}/knight_down_right_run_${frame}.png`),
+  },
 };
 
 export const allSpriteUrls: string[] = Object.values(spriteConfig).flatMap(
   (directionSprites) => [...directionSprites.idle, ...directionSprites.run],
 );
 
-function wizardDirection(name: string, runSteps: string[]): DirectionSprites {
+function wizardDirection(name: string): DirectionSprites {
   return {
-    idle: [`${character}/wizard_${name}_idle.png`],
-    run: runSteps.map((step) => `${character}/wizard_${name}_run_${step}.png`),
+    idle: [1, 2].map((frame) => `${character}/wizard_${name}_idle_${frame}.png`),
+    run: [1, 2, 3].map((frame) => `${character}/wizard_${name}_run_${frame}.png`),
   };
 }
 
-// Down plays right-step then left-step so the walk cycle matches her facing.
-// Up-left and up-right each use two run poses. Up-right is the up-left art mirrored.
 export const wizardSprites: Record<Facing, DirectionSprites> = {
-  up: wizardDirection("up", ["left", "right"]),
-  down: wizardDirection("down", ["right", "left"]),
-  left: wizardDirection("left", ["left", "right"]),
-  right: wizardDirection("right", ["left", "right"]),
-  "up-left": wizardDirection("up_left", ["left", "right"]),
-  "up-right": wizardDirection("up_right", ["left", "right"]),
-  "down-left": wizardDirection("down_left", ["left", "right"]),
-  "down-right": wizardDirection("down_right", ["left", "right"]),
+  up: wizardDirection("up"),
+  down: wizardDirection("down"),
+  left: wizardDirection("left"),
+  right: wizardDirection("right"),
+  "up-left": wizardDirection("up_left"),
+  "up-right": wizardDirection("up_right"),
+  "down-left": wizardDirection("down_left"),
+  "down-right": wizardDirection("down_right"),
 };
 
 export const wizardSpriteUrls: string[] = Object.values(wizardSprites).flatMap(

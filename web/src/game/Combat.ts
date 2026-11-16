@@ -7,8 +7,12 @@ import type { Doorway, DrawnRoom, DungeonMap } from "./DungeonMap";
 import { separateBodies } from "./EntityCollision";
 import { GoblinArcher, type ArrowShot } from "./GoblinArcher";
 import type { Rect } from "./Player";
+import { gameAudio } from "./Sound";
 import {
   facingVector,
+  KNIGHT_SLASH_PIVOT_NATIVE,
+  KNIGHT_SLASH_SOURCE,
+  knightSlashUrl,
   slashFrame,
   slashPivot,
   slashPoint,
@@ -82,6 +86,8 @@ export class Combat {
   private cooldown = 0;
   private slashTime = 0;
   private slashFacing: Facing = "right";
+  private slashCrit = false;
+  private critTime = 0;
   private castTimer = 0;
   private castFacing: Facing = "down";
   private readonly struck = new Set<number>();
@@ -119,6 +125,7 @@ export class Combat {
     this.invincible = Math.max(0, this.invincible - dt);
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.castTimer = Math.max(0, this.castTimer - dt);
+    this.critTime = Math.max(0, this.critTime - dt);
     if (this.slashTime > 0) {
       this.slashTime = Math.max(0, this.slashTime - dt);
     }
@@ -129,6 +136,10 @@ export class Combat {
       this.slashFacing = facing;
       this.struck.clear();
       this.cooldown = slash.cooldown;
+      const vertical = facing === "up" || facing === "down";
+      this.slashCrit = vertical && Math.random() < slash.critChance;
+      this.critTime = this.slashCrit ? 0.9 : 0;
+      gameAudio.slash(this.slashCrit);
     }
     if (this.adventurer === "wizard" && attackHeld && this.cooldown <= 0) {
       this.launchFireball(knightX, knightY, aimX, aimY, facing);
@@ -145,9 +156,10 @@ export class Combat {
         if (goblin.dead || this.struck.has(goblin.id)) {
           continue;
         }
-        if (rectsOverlap(sword, goblin.body())) {
+        if (rectsOverlap(sword, goblin.body()) && !this.blockedByWall(x, y + combatConfig.knightSlash.originOffsetY, goblin.body())) {
           this.struck.add(goblin.id);
-          goblin.takeHit();
+          const slashDamage = combatConfig.knightSlash;
+          goblin.takeHit(this.slashCrit ? slashDamage.critDamage : slashDamage.damage);
         }
       }
     }
@@ -273,8 +285,30 @@ export class Combat {
     return this.images.get("/combat/archer_arrow.png") ?? null;
   }
 
-  debugArchers(): { x: number; y: number; state: string; distance: number; draw: number; cooldown: number }[] {
-    const rows: { x: number; y: number; state: string; distance: number; draw: number; cooldown: number }[] = [];
+  debugArchers(): {
+    x: number;
+    y: number;
+    state: string;
+    distance: number;
+    draw: number;
+    cooldown: number;
+    sinceShot: number;
+    inRange: boolean;
+    los: boolean;
+    hold: string;
+  }[] {
+    const rows: {
+      x: number;
+      y: number;
+      state: string;
+      distance: number;
+      draw: number;
+      cooldown: number;
+      sinceShot: number;
+      inRange: boolean;
+      los: boolean;
+      hold: string;
+    }[] = [];
     for (const goblin of this.goblins) {
       if (!(goblin instanceof GoblinArcher) || goblin.dead) {
         continue;
@@ -324,6 +358,7 @@ export class Combat {
     this.cooldown = shot.cooldown;
     this.castTimer = 0.18;
     this.castFacing = facingFromVector(directionX, directionY);
+    gameAudio.fireball();
   }
 
   // Steps the projectile so a fast fireball cannot skip a thin wall or a goblin.
@@ -440,6 +475,7 @@ export class Combat {
       return;
     }
     ball.active = false;
+    gameAudio.explosion();
     const shot = combatConfig.wizard.fireball;
     let hits = 0;
     for (const goblin of this.goblins) {
@@ -541,28 +577,41 @@ export class Combat {
     return draws;
   }
 
+  // Pre-aimed slash art. Up and down use the vertical swing; every other facing has its own.
+  // One crisp frame replaces the last at equal steps so the swing whips through quickly.
   knightSlash(knightX: number, knightY: number): SlashDraw | null {
     if (this.slashTime <= 0) {
       return null;
     }
     const style = combatConfig.knightSlash;
-    const frame = slashFrame(this.slashElapsed(), style.duration);
-    const image = this.images.get(slashUrl(frame));
+    const progress = Math.min(1, this.slashElapsed() / style.duration);
+    const frame = Math.min(3, Math.floor(progress * 4));
+    const image = this.images.get(knightSlashUrl(this.slashFacing, frame));
     if (!image) {
       return null;
     }
+    const alpha = progress <= 0.85 ? 1 : Math.max(0, (1 - progress) / 0.15);
+    if (alpha <= 0.02) {
+      return null;
+    }
     const dir = facingVector(this.slashFacing);
-    const pivot = slashPivot(frame);
-    const point = slashPoint(knightX, knightY, dir.x, dir.y, style.originOffsetY, style.forwardOffset);
+    const forward = this.slashFacing.includes("-") ? style.diagonalForwardOffset : style.forwardOffset;
+    const point = slashPoint(knightX, knightY, dir.x, dir.y, style.originOffsetY, forward);
     return {
       image,
       x: point.x,
       y: point.y,
-      rotation: slashRotation(vectorAngle(dir.x, dir.y)),
+      rotation: 0,
       visualScale: style.visualScale,
-      pivotX: pivot.x,
-      pivotY: pivot.y,
+      pivotX: KNIGHT_SLASH_PIVOT_NATIVE.x,
+      pivotY: KNIGHT_SLASH_PIVOT_NATIVE.y,
+      sourceSize: KNIGHT_SLASH_SOURCE,
+      alpha,
     };
+  }
+
+  criticalTime(): number {
+    return this.critTime;
   }
 
   healthBars(): { x: number; y: number; fraction: number }[] {
@@ -623,7 +672,7 @@ export class Combat {
   private knightHitbox(x: number, y: number): Rect {
     const style = combatConfig.knightSlash;
     const dir = facingVector(this.slashFacing);
-    const point = slashPoint(x, y, dir.x, dir.y, style.originOffsetY, style.forwardOffset);
+    const point = slashPoint(x, y, dir.x, dir.y, style.originOffsetY, style.hitForwardOffset);
     return {
       x: point.x - style.hitWidth / 2,
       y: point.y - style.hitHeight / 2,
@@ -748,22 +797,60 @@ export class Combat {
     playerX: number,
     playerY: number,
   ): void {
-    const roster = combatConfig.encounter;
-    const total = roster.melee + roster.archers;
+    const roster = combatConfig.enemyRoomConfig;
     const inwardX = door?.inwardX ?? 0;
     const inwardY = door?.inwardY ?? 1;
-    const spots = this.encounterSpots(room, inwardX, inwardY, total, playerX, playerY);
-    let archerNumber = 0;
-    for (const spot of spots) {
+    const archers = this.encounterSpots(room, inwardX, inwardY, roster.archerGoblinCount, playerX, playerY);
+    const melee = this.scatteredSpots(room, index, roster.meleeGoblinCount, playerX, playerY, archers);
+    for (const spot of melee) {
       this.spawnMarks.push(spot);
-      if (this.goblins.filter((enemy) => enemy.roomIndex === index).length < roster.melee) {
-        this.goblins.push(new Goblin(spot.x, spot.y, index));
-        continue;
-      }
-      const lane = (archerNumber - (roster.archers - 1) / 2) * 78;
-      this.goblins.push(new GoblinArcher(nextGoblinId++, spot.x, spot.y, index, room, lane, archerNumber * 0.45));
-      archerNumber += 1;
+      this.goblins.push(new Goblin(spot.x, spot.y, index));
     }
+    archers.forEach((spot, archerNumber) => {
+      this.spawnMarks.push(spot);
+      const lane = (archerNumber - (archers.length - 1) / 2) * 78;
+      this.goblins.push(new GoblinArcher(nextGoblinId++, spot.x, spot.y, index, room, lane, archerNumber * 0.2));
+    });
+  }
+
+  // Melee goblins use the rest of the floor, away from the archers and the player.
+  private scatteredSpots(
+    room: DrawnRoom,
+    roomIndex: number,
+    count: number,
+    playerX: number,
+    playerY: number,
+    reserved: { x: number; y: number }[],
+  ): { x: number; y: number }[] {
+    const cells: { x: number; y: number }[] = [];
+    for (let gy = 1; gy < 8; gy += 1) {
+      for (let gx = 1; gx < 8; gx += 1) {
+        cells.push({
+          x: room.x + (room.width * gx) / 8,
+          y: room.y + (room.height * gy) / 8,
+        });
+      }
+    }
+    let seed = roomIndex * 997 + 13;
+    for (let i = cells.length - 1; i > 0; i -= 1) {
+      seed = (seed * 16807) % 2147483647;
+      const swap = seed % (i + 1);
+      const cell = cells[i];
+      cells[i] = cells[swap];
+      cells[swap] = cell;
+    }
+    const placed = [...reserved];
+    const chosen: { x: number; y: number }[] = [];
+    for (const point of cells) {
+      if (chosen.length >= count) {
+        break;
+      }
+      if (this.spotFree(room, point, placed, playerX, playerY)) {
+        placed.push(point);
+        chosen.push(point);
+      }
+    }
+    return chosen;
   }
 
   private encounterSpots(
@@ -883,11 +970,11 @@ class Goblin {
     };
   }
 
-  takeHit(): void {
+  takeHit(amount = 1): void {
     if (this.dead) {
       return;
     }
-    this.hp -= 1;
+    this.hp -= amount;
     if (this.hp <= 0) {
       this.dead = true;
       this.state = "dead";
@@ -1045,18 +1132,20 @@ class Goblin {
   }
 
   barOffset(): number {
-    return combatConfig.goblin.footAnchorY * combatConfig.goblin.scale + 8;
+    const render = combatConfig.goblin.spriteRendering;
+    return (render.anchorY * 128 + render.offsetY) * render.scale + 8;
   }
 
   sprite(): { url: string; anchorX: number; anchorY: number; scale: number; alpha: number } | null {
     if (this.dead) {
       return null;
     }
+    const render = combatConfig.goblin.spriteRendering;
     return {
       url: this.imageUrl(),
-      anchorX: combatConfig.goblin.footAnchorX,
-      anchorY: combatConfig.goblin.footAnchorY,
-      scale: combatConfig.goblin.scale,
+      anchorX: render.anchorX * 128 + render.offsetX,
+      anchorY: render.anchorY * 128 + render.offsetY,
+      scale: render.scale,
       alpha: 1,
     };
   }

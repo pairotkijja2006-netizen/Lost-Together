@@ -1,5 +1,5 @@
 import { combatConfig } from "../config/combatConfig";
-import { scaledHitbox } from "../config/gameConfig";
+import { gameConfig, scaledHitbox } from "../config/gameConfig";
 import type { CollisionSystem } from "./CollisionSystem";
 import type { DungeonMap } from "./DungeonMap";
 import type { Rect } from "./Player";
@@ -20,7 +20,6 @@ export interface RoomBounds {
   height: number;
 }
 
-const RELEASE_POSE = 0.08;
 
 // Stays at range and looses one arrow per shot interval. Draw and recovery fit inside that interval.
 export class GoblinArcher {
@@ -39,6 +38,10 @@ export class GoblinArcher {
   private fade = 0;
   private moving = false;
   private distance = 0;
+  private sinceShot = 0;
+  private los = false;
+  private inRange = false;
+  private hold = "idle";
   private windupDelay: number;
   private readonly lane: number;
   private readonly room: RoomBounds;
@@ -81,11 +84,11 @@ export class GoblinArcher {
     return body.footAnchorY * body.scale + 8;
   }
 
-  takeHit(): void {
+  takeHit(amount = 1): void {
     if (this.dead) {
       return;
     }
-    this.hp -= 1;
+    this.hp -= amount;
     if (this.hp <= 0) {
       this.dead = true;
       this.state = "dead";
@@ -123,6 +126,7 @@ export class GoblinArcher {
     }
     this.flash = Math.max(0, this.flash - dt);
     this.cooldown = Math.max(0, this.cooldown - dt);
+    this.sinceShot += dt;
     this.facing = knightX < this.x ? "left" : "right";
     this.distance = Math.hypot(knightX - this.x, knightY - this.y);
 
@@ -130,8 +134,10 @@ export class GoblinArcher {
       this.hitstun = Math.max(0, this.hitstun - dt);
       this.moving = false;
       this.state = "hurt";
+      this.hold = "hitstun";
       if (this.hitstun <= 0) {
         this.state = "idle";
+        this.hold = "idle";
       }
       return;
     }
@@ -142,11 +148,14 @@ export class GoblinArcher {
       return;
     }
 
+    const timing = combatConfig.archerAttack;
     if (this.state === "draw") {
       this.moving = false;
+      this.hold = "drawing";
       this.actionTime += dt;
-      if (this.actionTime >= combatConfig.archerAttack.drawDuration) {
+      if (this.actionTime >= timing.drawDuration) {
         onShoot(this.looseArrow(knightBody));
+        this.sinceShot = 0;
         this.state = "shoot";
         this.actionTime = 0;
       }
@@ -155,8 +164,9 @@ export class GoblinArcher {
 
     if (this.state === "shoot") {
       this.moving = false;
+      this.hold = "releasing";
       this.actionTime += dt;
-      if (this.actionTime >= RELEASE_POSE) {
+      if (this.actionTime >= timing.releaseDuration) {
         this.state = "recovery";
         this.actionTime = 0;
       }
@@ -165,8 +175,9 @@ export class GoblinArcher {
 
     if (this.state === "recovery") {
       this.moving = false;
+      this.hold = "recovering";
       this.actionTime += dt;
-      if (this.actionTime >= combatConfig.archerAttack.recoveryDuration - RELEASE_POSE) {
+      if (this.actionTime >= timing.recoveryDuration) {
         this.state = "idle";
         this.actionTime = 0;
       }
@@ -181,25 +192,43 @@ export class GoblinArcher {
     const sideY = awayX / away;
     const goalX = knightX + (awayX / away) * stats.preferredDistance + sideX * this.lane;
     const goalY = knightY + (awayY / away) * stats.preferredDistance + sideY * this.lane;
-    const inBand = this.distance >= stats.retreatDistance && this.distance <= stats.preferredDistance + 48;
-    const onLane = Math.hypot(goalX - this.x, goalY - this.y) < 36;
-    if (inBand && onLane && this.distance <= stats.detectionRange && this.windupDelay <= 0) {
+    const targetX = knightBody.x + knightBody.width / 2;
+    const targetY = knightBody.y + knightBody.height / 2;
+    this.los = this.clearLine(map, targetX, targetY);
+    const tooClose = this.distance < stats.retreatDistance;
+    this.inRange = !tooClose && this.distance <= stats.detectionRange;
+    if (this.windupDelay > 0) {
+      this.windupDelay = Math.max(0, this.windupDelay - dt);
+    }
+
+    // A clear shot starts or waits out the interval. It does not require standing on the lane.
+    if (this.inRange && this.los) {
       this.moving = false;
+      if (this.windupDelay > 0) {
+        this.state = "idle";
+        this.hold = "opening";
+        return;
+      }
       if (this.cooldown <= 0) {
         this.state = "draw";
         this.actionTime = 0;
         this.cooldown = combatConfig.archerAttack.shotInterval;
+        this.hold = "drawing";
         return;
       }
       this.state = "idle";
+      this.hold = "cooldown";
       return;
     }
 
-    if (inBand && onLane && this.windupDelay > 0) {
-      this.windupDelay = Math.max(0, this.windupDelay - dt);
-    }
-
     this.state = "reposition";
+    if (tooClose) {
+      this.hold = "too close";
+    } else if (!this.los) {
+      this.hold = "no line of sight";
+    } else {
+      this.hold = "too far";
+    }
     let steerX = goalX - this.x;
     let steerY = goalY - this.y;
     for (const ally of allies) {
@@ -232,14 +261,44 @@ export class GoblinArcher {
     return null;
   }
 
-  debug(): { state: ArcherState; distance: number; draw: number; cooldown: number } {
+  debug(): {
+    state: ArcherState;
+    distance: number;
+    draw: number;
+    cooldown: number;
+    sinceShot: number;
+    inRange: boolean;
+    los: boolean;
+    hold: string;
+  } {
     const drawing = this.state === "draw";
     return {
       state: this.state,
       distance: this.distance,
       draw: drawing ? Math.min(1, this.actionTime / combatConfig.archerAttack.drawDuration) : 0,
       cooldown: this.cooldown,
+      sinceShot: this.sinceShot,
+      inRange: this.inRange,
+      los: this.los,
+      hold: this.hold,
     };
+  }
+
+  private clearLine(map: DungeonMap, targetX: number, targetY: number): boolean {
+    const originY = this.y - combatConfig.archer.muzzleUp;
+    const dx = targetX - this.x;
+    const dy = targetY - originY;
+    const distance = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(distance / 16));
+    const tile = gameConfig.tileSize;
+    for (let step = 1; step < steps; step += 1) {
+      const sampleX = this.x + (dx * step) / steps;
+      const sampleY = originY + (dy * step) / steps;
+      if (map.isSolidTile(Math.floor(sampleX / tile), Math.floor(sampleY / tile))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private looseArrow(knightBody: Rect): ArrowShot {

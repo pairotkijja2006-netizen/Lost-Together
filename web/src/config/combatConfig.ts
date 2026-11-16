@@ -1,3 +1,5 @@
+import { knightSlashUrls } from "../game/Slash";
+
 // Combat timings are in seconds. Distances are dungeon pixels.
 export const combatConfig = {
   knight: {
@@ -10,15 +12,26 @@ export const combatConfig = {
   },
   // Cooldown is the minimum time between swing starts. The swing itself is shorter.
   knightSlash: {
-    visualScale: 1.5,
-    forwardOffset: 54,
-    duration: 0.15,
+    // Center of the slash image, in front of the torso. Diagonal frames already sit out in their corner.
+    forwardOffset: 46,
+    diagonalForwardOffset: 18,
+    // The new frames are 144px and already fill the swing, so they are not stretched.
+    visualScale: 0.98,
+    acrossScale: 1,
+    damage: 1,
+    // Straight up or down uses the vertical slash. Those swings crit 30% of the time, for 50% more damage.
+    critChance: 0.3,
+    critDamage: 1.5,
+    duration: 0.14,
     cooldown: 1,
     activeStart: 0.02,
     activeEnd: 0.13,
-    hitWidth: 48,
-    hitHeight: 34,
-    // Torso height above the feet. The arc is then pushed forward from here.
+    hitWidth: 200,
+    hitHeight: 200,
+    // Center of the hit box, farther forward than the chord so the wide tips are covered
+    // and the near edge stays in front of the knight.
+    hitForwardOffset: 136,
+    // Torso height above the feet. The slash is measured forward from here.
     originOffsetY: -30,
   },
   goblin: {
@@ -29,10 +42,17 @@ export const combatConfig = {
     bodyHeight: 40,
     bodyOffsetX: -15,
     bodyOffsetY: -44,
-    // Feet sit near the bottom of the 128px frame.
+    // Feet after the new frames were shifted onto a shared 128px canvas.
     footAnchorX: 64,
-    footAnchorY: 121,
-    // The goblin art is taller than the knight's. 0.58 draws it just under the knight's height.
+    footAnchorY: 123,
+    spriteRendering: {
+      anchorX: 0.5,
+      anchorY: 123 / 128,
+      offsetX: 0,
+      offsetY: 0,
+      scale: 0.58,
+    },
+    // Draws the goblin just under the knight's height.
     scale: 0.58,
     // Circle around the feet used so goblins cannot occupy the same space.
     bodyRadius: 9,
@@ -55,14 +75,13 @@ export const combatConfig = {
     attackDuration: 0.2,
     attackRecovery: 0.15,
   },
-  // How many of each enemy an unvisited enemy room spawns. Archers replace melee for this encounter.
-  encounter: {
-    melee: 0,
-    archers: 3,
+  enemyRoomConfig: {
+    meleeGoblinCount: 3,
+    archerGoblinCount: 1,
   },
   archer: {
-    maxHealth: 3,
-    movementSpeed: 85,
+    maxHealth: 1,
+    movementSpeed: 70,
     preferredDistance: 220,
     retreatDistance: 140,
     detectionRange: 450,
@@ -81,11 +100,12 @@ export const combatConfig = {
     muzzleForward: 22,
     muzzleUp: 34,
   },
-  // shotInterval is the minimum time between arrow releases.
-  // The 1s draw and 0.5s recovery happen inside that window, so they are not added on top of it.
+  // shotInterval is the time from one release to the next.
+  // Draw, release, and recovery add up to that interval, so they are not stacked on top of it.
   archerAttack: {
-    drawDuration: 1,
-    recoveryDuration: 0.5,
+    drawDuration: 0.7,
+    releaseDuration: 0.1,
+    recoveryDuration: 0.2,
     shotInterval: 1.5,
     damage: 1,
   },
@@ -96,6 +116,8 @@ export const combatConfig = {
     visualWidth: 42,
     pivotX: 0.5,
     pivotY: 0.5,
+    // The arrowhead tip is on the left end of archer_arrow.png (-X, angle PI), with feathers on the right.
+    spriteForwardAngle: Math.PI,
     hitSize: 8,
   },
   wizard: {
@@ -108,7 +130,7 @@ export const combatConfig = {
       // The blast is the only damage. A direct hit is not counted a second time.
       directDamage: 0,
       splashDamage: 1,
-      explosionRadius: 40,
+      explosionRadius: 55,
       explosionDuration: 0.25,
       // How far in front of the feet the projectile appears.
       muzzle: 22,
@@ -140,9 +162,6 @@ export const combatConfig = {
 const combatRoot = "/combat";
 
 export const combatSpriteUrls = [
-  `${combatRoot}/slash_left_1.png`,
-  `${combatRoot}/slash_left_2.png`,
-  `${combatRoot}/slash_left_3.png`,
   `${combatRoot}/slash_right_1.png`,
   `${combatRoot}/slash_right_2.png`,
   `${combatRoot}/slash_right_3.png`,
@@ -173,4 +192,5 @@ export const combatSpriteUrls = [
   `${combatRoot}/archer_right_draw_3.png`,
   `${combatRoot}/archer_right_draw_4.png`,
   `${combatRoot}/archer_arrow.png`,
+  ...knightSlashUrls,
 ];
