@@ -6,17 +6,19 @@ export const gameConfig = {
   animationFps: 10,
   tileSize: 32,
 
-  // Measured from the room PNGs. Wall tiles average about 77–85 red.
-  // Floor and doorway tiles average about 101–143 red. Values in between
-  // are treated as unknown and refuse to generate a collision map.
+  // Measured from the room PNGs. Clear walls average about 35–89 red.
+  // Clear floors average about 100–129 red. Values in between are usually
+  // floor scuffs or wall trim; solidFromArtwork resolves those by neighbors.
   wallRedMax: 90,
   floorRedMin: 100,
 
   // Same shape as Dungeon::generate(3): start, two enemy rooms, side rooms, final room.
   mainPathSteps: 3,
-  // Length of each hallway, in pixels. 128 is one segment; 384 is three of those end to end.
+  // Length of each hallway, in pixels. 128 is one segment; 384 is three segments end to end.
   corridorGap: 384,
+  // Door openings and corridor floors are 3 tiles for every direction.
   doorWidth: 96,
+  verticalDoorWidth: 96,
 
   sprite: {
     frameSize: 128,

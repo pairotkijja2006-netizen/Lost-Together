@@ -1,14 +1,21 @@
 import { gameConfig } from "../config/gameConfig";
-import { hallwaySheet } from "../config/dungeonConfig";
+import {
+  hallwaySheetFor,
+  hallwaySheetHorizontal,
+  hallwaySheetVertical,
+  type HallwaySheetConfig,
+} from "../config/dungeonConfig";
 import { East, North, South, West, type GeneratedCorridor } from "./DungeonGenerator";
 
-export type Rotation = 0 | 90 | 180 | 270;
+export type Rotation = 0 | 90;
 
 export interface PlacedHallway {
   // Top-left of the hallway including both walls, in world pixels.
   x: number;
   y: number;
+  // 0 = east-west (depth sheet). 90 = north-south (upright vertical sheet).
   rotation: Rotation;
+  reverseAlong: boolean;
   lengthTiles: number;
   columnOffset: number;
   entrance: { x: number; y: number };
@@ -18,8 +25,10 @@ export interface PlacedHallway {
 export interface HallwayCell {
   x: number;
   y: number;
-  column: number;
-  row: number;
+  // Source tile on the sheet. For horizontal sheets this is the along-axis column.
+  // For vertical sheets this is the along-axis row.
+  alongIndex: number;
+  acrossIndex: number;
   rotation: Rotation;
   solid: boolean;
 }
@@ -31,24 +40,53 @@ interface Footprint {
   height: number;
 }
 
+function validateSheet(sheet: HallwaySheetConfig, label: string): void {
+  const across = sheet.solidAcross;
+  const open = across.filter((solid) => !solid).length;
+  const expectedDoor = open * gameConfig.tileSize;
+  const door =
+    sheet.orientation === "horizontal" ? gameConfig.doorWidth : gameConfig.verticalDoorWidth;
+  if (expectedDoor !== door) {
+    throw new Error(`${label} floor is ${open} tile(s), but doorways are ${door}px wide.`);
+  }
+  const firstFloor = across.findIndex((solid) => !solid);
+  const lastFloor = across.length - 1 - [...across].reverse().findIndex((solid) => !solid);
+  if (firstFloor < 0 || across.slice(firstFloor, lastFloor + 1).some((solid) => solid)) {
+    throw new Error(`${label} floor cells must be contiguous between the walls.`);
+  }
+  if (firstFloor === 0 || lastFloor === across.length - 1) {
+    throw new Error(`${label} walls must frame the floor on both sides.`);
+  }
+}
+
 export function validateHallwaySheet(): void {
-  const rows = hallwaySheet.solidRows;
-  const open = rows.filter((solid) => !solid).length;
-  if (open * gameConfig.tileSize !== gameConfig.doorWidth) {
-    throw new Error(
-      `Hallway floor is ${open} tile(s), but doorways are ${gameConfig.doorWidth}px wide.`,
-    );
+  validateSheet(hallwaySheetHorizontal, "Horizontal hallway");
+  validateSheet(hallwaySheetVertical, "Vertical hallway");
+}
+
+export function wallPadding(sheet: HallwaySheetConfig): { start: number; end: number } {
+  const across = sheet.solidAcross;
+  let start = 0;
+  while (start < across.length && across[start]) {
+    start += 1;
   }
-  if (!rows[0] || !rows[rows.length - 1] || rows.slice(1, -1).some((solid) => solid)) {
-    throw new Error("Hallway walls must be the outer rows, with floor rows between them.");
+  let end = 0;
+  while (end < across.length - start && across[across.length - 1 - end]) {
+    end += 1;
   }
+  return { start, end };
+}
+
+function sheetForHallway(hallway: PlacedHallway): HallwaySheetConfig {
+  return hallwaySheetFor(hallway.rotation === 0);
 }
 
 export function hallwayBounds(hallway: PlacedHallway): Footprint {
   const tile = gameConfig.tileSize;
-  const across = hallwaySheet.solidRows.length * tile;
+  const sheet = sheetForHallway(hallway);
+  const across = sheet.solidAcross.length * tile;
   const along = hallway.lengthTiles * tile;
-  const horizontal = hallway.rotation === 0 || hallway.rotation === 180;
+  const horizontal = hallway.rotation === 0;
   return {
     x: hallway.x,
     y: hallway.y,
@@ -60,18 +98,20 @@ export function hallwayBounds(hallway: PlacedHallway): Footprint {
 export function corridorFootprint(corridor: GeneratedCorridor): Footprint {
   const tile = gameConfig.tileSize;
   const horizontal = corridor.direction === East || corridor.direction === West;
+  const sheet = hallwaySheetFor(horizontal);
+  const { start, end } = wallPadding(sheet);
   if (horizontal) {
     return {
       x: corridor.x,
-      y: corridor.y - tile,
+      y: corridor.y - start * tile,
       width: corridor.width,
-      height: corridor.height + tile * 2,
+      height: corridor.height + (start + end) * tile,
     };
   }
   return {
-    x: corridor.x - tile,
+    x: corridor.x - start * tile,
     y: corridor.y,
-    width: corridor.width + tile * 2,
+    width: corridor.width + (start + end) * tile,
     height: corridor.height,
   };
 }
@@ -80,6 +120,7 @@ export function placeHallway(corridor: GeneratedCorridor): PlacedHallway {
   const tile = gameConfig.tileSize;
   const footprint = corridorFootprint(corridor);
   const horizontal = corridor.direction === East || corridor.direction === West;
+  const sheet = hallwaySheetFor(horizontal);
   const span = horizontal ? corridor.width : corridor.height;
   const tiles = span / tile;
   if (Math.abs(tiles - Math.round(tiles)) > 0.001) {
@@ -87,33 +128,35 @@ export function placeHallway(corridor: GeneratedCorridor): PlacedHallway {
   }
   const midX = corridor.x + corridor.width / 2;
   const midY = corridor.y + corridor.height / 2;
-  const entrance = endPoint(corridor, true, midX, midY);
-  const exit = endPoint(corridor, false, midX, midY);
+  const alongCount = sheet.orientation === "horizontal" ? sheet.columns : sheet.rows;
   return {
     x: footprint.x,
     y: footprint.y,
-    rotation: rotationFor(corridor.direction),
+    rotation: horizontal ? 0 : 90,
+    reverseAlong: corridor.direction === West || corridor.direction === North,
     lengthTiles: Math.round(tiles),
-    columnOffset: Math.abs(corridor.x * 3 + corridor.y) % hallwaySheet.columns,
-    entrance,
-    exit,
+    columnOffset: Math.abs(corridor.x * 3 + corridor.y) % alongCount,
+    entrance: endPoint(corridor, true, midX, midY),
+    exit: endPoint(corridor, false, midX, midY),
   };
 }
 
-// Same cells used for drawing and for collision, so a rotation moves both.
 export function hallwayCells(hallway: PlacedHallway): HallwayCell[] {
-  const across = hallwaySheet.solidRows.length;
+  const sheet = sheetForHallway(hallway);
+  const across = sheet.solidAcross.length;
+  const alongCount = sheet.orientation === "horizontal" ? sheet.columns : sheet.rows;
   const cells: HallwayCell[] = [];
   for (let along = 0; along < hallway.lengthTiles; along++) {
-    for (let row = 0; row < across; row++) {
-      const placed = placeCell(hallway, along, row, across);
+    for (let acrossIndex = 0; acrossIndex < across; acrossIndex++) {
+      const placed = placeCell(hallway, along, acrossIndex);
+      const alongSource = hallway.reverseAlong ? hallway.lengthTiles - 1 - along : along;
       cells.push({
         x: placed.x,
         y: placed.y,
-        column: (along + hallway.columnOffset) % hallwaySheet.columns,
-        row,
+        alongIndex: (alongSource + hallway.columnOffset) % alongCount,
+        acrossIndex,
         rotation: hallway.rotation,
-        solid: hallwaySheet.solidRows[row],
+        solid: sheet.solidAcross[acrossIndex],
       });
     }
   }
@@ -123,24 +166,24 @@ export function hallwayCells(hallway: PlacedHallway): HallwayCell[] {
 export class HallwayTiles {
   private cache = new Map<string, HTMLCanvasElement>();
 
-  constructor(private sheet: HTMLImageElement) {
-    const expectedWidth = hallwaySheet.columns * hallwaySheet.cellWidth;
-    const expectedHeight = hallwaySheet.rows * hallwaySheet.cellHeight;
-    if (sheet.width !== expectedWidth || sheet.height !== expectedHeight) {
-      throw new Error(
-        `${hallwaySheet.url} is ${sheet.width}x${sheet.height}, expected ${expectedWidth}x${expectedHeight}.`,
-      );
-    }
+  constructor(
+    private horizontalSheet: HTMLImageElement,
+    private verticalSheet: HTMLImageElement,
+  ) {
+    assertSheet(horizontalSheet, hallwaySheetHorizontal);
+    assertSheet(verticalSheet, hallwaySheetVertical);
   }
 
   draw(context: CanvasRenderingContext2D, hallway: PlacedHallway): void {
     for (const cell of hallwayCells(hallway)) {
-      context.drawImage(this.tile(cell.column, cell.row, cell.rotation), cell.x, cell.y);
+      context.drawImage(this.tile(hallway, cell), cell.x, cell.y);
     }
   }
 
-  private tile(column: number, row: number, rotation: Rotation): HTMLCanvasElement {
-    const key = `${column}:${row}:${rotation}`;
+  private tile(hallway: PlacedHallway, cell: HallwayCell): HTMLCanvasElement {
+    const sheet = sheetForHallway(hallway);
+    const image = hallway.rotation === 0 ? this.horizontalSheet : this.verticalSheet;
+    const key = `${hallway.rotation}:${cell.alongIndex}:${cell.acrossIndex}`;
     const cached = this.cache.get(key);
     if (cached) {
       return cached;
@@ -154,30 +197,46 @@ export class HallwayTiles {
       throw new Error("Could not prepare a hallway tile.");
     }
     context.imageSmoothingEnabled = false;
-    context.translate(size / 2, size / 2);
-    context.rotate((rotation * Math.PI) / 180);
-    context.drawImage(
-      this.sheet,
-      column * hallwaySheet.cellWidth,
-      row * hallwaySheet.cellHeight,
-      hallwaySheet.cellWidth,
-      hallwaySheet.cellHeight,
-      -size / 2,
-      -size / 2,
-      size,
-      size,
-    );
+    const sx =
+      sheet.orientation === "horizontal"
+        ? cell.alongIndex * sheet.cellWidth
+        : cell.acrossIndex * sheet.cellWidth;
+    const sy =
+      sheet.orientation === "horizontal"
+        ? cell.acrossIndex * sheet.cellHeight
+        : cell.alongIndex * sheet.cellHeight;
+    // Horizontal depth sheet is authored left-to-right; rotate for north-south only when
+    // using that sheet. The vertical sheet is already upright.
+    if (sheet.orientation === "horizontal" && hallway.rotation === 90) {
+      context.translate(size / 2, size / 2);
+      context.rotate(Math.PI / 2);
+      context.drawImage(
+        image,
+        sx,
+        sy,
+        sheet.cellWidth,
+        sheet.cellHeight,
+        -size / 2,
+        -size / 2,
+        size,
+        size,
+      );
+    } else {
+      context.drawImage(image, sx, sy, sheet.cellWidth, sheet.cellHeight, 0, 0, size, size);
+    }
     this.cache.set(key, canvas);
     return canvas;
   }
 }
 
-function rotationFor(direction: number): Rotation {
-  if (direction === East) return 0;
-  if (direction === South) return 90;
-  if (direction === West) return 180;
-  if (direction === North) return 270;
-  throw new Error(`Unknown hallway direction ${direction}.`);
+function assertSheet(image: HTMLImageElement, sheet: HallwaySheetConfig): void {
+  const expectedWidth = sheet.columns * sheet.cellWidth;
+  const expectedHeight = sheet.rows * sheet.cellHeight;
+  if (image.width !== expectedWidth || image.height !== expectedHeight) {
+    throw new Error(
+      `${sheet.url} is ${image.width}x${image.height}, expected ${expectedWidth}x${expectedHeight}.`,
+    );
+  }
 }
 
 function endPoint(
@@ -201,20 +260,11 @@ function endPoint(
 function placeCell(
   hallway: PlacedHallway,
   along: number,
-  row: number,
-  across: number,
+  acrossIndex: number,
 ): { x: number; y: number } {
   const tile = gameConfig.tileSize;
-  const lastAcross = across - 1;
-  const lastAlong = hallway.lengthTiles - 1;
   if (hallway.rotation === 0) {
-    return { x: hallway.x + along * tile, y: hallway.y + row * tile };
+    return { x: hallway.x + along * tile, y: hallway.y + acrossIndex * tile };
   }
-  if (hallway.rotation === 90) {
-    return { x: hallway.x + (lastAcross - row) * tile, y: hallway.y + along * tile };
-  }
-  if (hallway.rotation === 180) {
-    return { x: hallway.x + (lastAlong - along) * tile, y: hallway.y + (lastAcross - row) * tile };
-  }
-  return { x: hallway.x + row * tile, y: hallway.y + (lastAlong - along) * tile };
+  return { x: hallway.x + acrossIndex * tile, y: hallway.y + along * tile };
 }

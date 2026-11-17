@@ -1,5 +1,5 @@
 import { gameConfig, scaledHitbox } from "../config/gameConfig";
-import { hallwaySheet } from "../config/dungeonConfig";
+import { hallwaySheetHorizontal, hallwaySheetVertical } from "../config/dungeonConfig";
 import {
   East,
   generateDungeon,
@@ -14,6 +14,7 @@ import {
   HallwayTiles,
   placeHallway,
   validateHallwaySheet,
+  wallPadding,
   type PlacedHallway,
 } from "./Hallway";
 
@@ -148,7 +149,8 @@ export class DungeonMap {
     return this.lockedRooms.has(roomIndex);
   }
 
-  // The three-tile opening on each side that has a door. These are the tiles setRoomLocked seals.
+  // The three-tile opening on each side that has a door. East/west seals also
+  // cover the horizontal hallway's depth wall so the closed door reaches its top.
   doorways(room: DrawnRoom): Doorway[] {
     const tile = this.tileSize;
     const originX = Math.round(room.x / tile);
@@ -158,6 +160,8 @@ export class DungeonMap {
     const midX = Math.floor(tilesX / 2);
     const midY = Math.floor(tilesY / 2);
     const span = tile * 3;
+    const depth = wallPadding(hallwaySheetHorizontal);
+    const depthHeight = (depth.start + 3 + depth.end) * tile;
     const doors: Doorway[] = [];
     if (room.doors & North) {
       doors.push({
@@ -183,20 +187,21 @@ export class DungeonMap {
       doors.push({
         inwardX: -1,
         inwardY: 0,
+        // Cover the room edge and the first hallway column so the plug fills the mouth.
         x: (originX + tilesX - 1) * tile,
-        y: (originY + midY - 1) * tile,
-        width: tile,
-        height: span,
+        y: (originY + midY - 1 - depth.start) * tile,
+        width: tile * 2,
+        height: depthHeight,
       });
     }
     if (room.doors & West) {
       doors.push({
         inwardX: 1,
         inwardY: 0,
-        x: originX * tile,
-        y: (originY + midY - 1) * tile,
-        width: tile,
-        height: span,
+        x: (originX - 1) * tile,
+        y: (originY + midY - 1 - depth.start) * tile,
+        width: tile * 2,
+        height: depthHeight,
       });
     }
     return doors;
@@ -208,7 +213,8 @@ export class DungeonMap {
     const tileSize = gameConfig.tileSize;
     const images = new Map<string, HTMLImageElement>();
     const urls = new Set(dungeon.rooms.map((room) => room.imageUrl));
-    urls.add(hallwaySheet.url);
+    urls.add(hallwaySheetHorizontal.url);
+    urls.add(hallwaySheetVertical.url);
     await Promise.all(
       [...urls].map(async (url) => {
         images.set(url, await loadImage(url));
@@ -261,7 +267,7 @@ export class DungeonMap {
         throw new Error(`${room.imageUrl} is ${image.width}x${image.height}, expected ${room.width}x${room.height}.`);
       }
       stampRoom(kind, room, solidFromArtwork(image, tileSize), tileSize);
-      drawn.push({
+      const drawnRoom: DrawnRoom = {
         image,
         x: room.x,
         y: room.y,
@@ -269,20 +275,30 @@ export class DungeonMap {
         height: room.height,
         doors: room.doors,
         type: room.type,
-      });
+      };
+      // Doorway art can sit just under the floor threshold; keep the three-tile
+      // openings walkable so hallways connect seamlessly.
+      for (const cell of doorCells(drawnRoom, tileSize)) {
+        kind[cell.ty][cell.tx] = TileRoomFloor;
+      }
+      drawn.push(drawnRoom);
     }
     for (const hallway of hallways) {
       stampHallway(kind, hallway, tileSize);
     }
 
-    const sheet = images.get(hallwaySheet.url);
-    if (!sheet) {
-      throw new Error(`Missing ${hallwaySheet.url}`);
+    const horizontalSheet = images.get(hallwaySheetHorizontal.url);
+    const verticalSheet = images.get(hallwaySheetVertical.url);
+    if (!horizontalSheet) {
+      throw new Error(`Missing ${hallwaySheetHorizontal.url}`);
+    }
+    if (!verticalSheet) {
+      throw new Error(`Missing ${hallwaySheetVertical.url}`);
     }
     return new DungeonMap(
       drawn,
       hallways,
-      new HallwayTiles(sheet),
+      new HallwayTiles(horizontalSheet, verticalSheet),
       kind,
       tileSize,
       dungeon.seed,
@@ -309,6 +325,7 @@ function doorCells(room: DrawnRoom, tileSize: number): { tx: number; ty: number 
   const midY = Math.floor(tilesY / 2);
   const cells: { tx: number; ty: number }[] = [];
   const across = [-1, 0, 1];
+  const depth = wallPadding(hallwaySheetHorizontal);
   if (room.doors & North) {
     for (const offset of across) cells.push({ tx: originX + midX + offset, ty: originY });
   }
@@ -316,10 +333,17 @@ function doorCells(room: DrawnRoom, tileSize: number): { tx: number; ty: number 
     for (const offset of across) cells.push({ tx: originX + midX + offset, ty: originY + tilesY - 1 });
   }
   if (room.doors & East) {
-    for (const offset of across) cells.push({ tx: originX + tilesX - 1, ty: originY + midY + offset });
+    // Seal the floor opening plus the depth-wall rows so collision matches the tall door.
+    for (let row = -depth.start; row <= 2 + depth.end; row++) {
+      cells.push({ tx: originX + tilesX - 1, ty: originY + midY - 1 + row });
+      cells.push({ tx: originX + tilesX, ty: originY + midY - 1 + row });
+    }
   }
   if (room.doors & West) {
-    for (const offset of across) cells.push({ tx: originX, ty: originY + midY + offset });
+    for (let row = -depth.start; row <= 2 + depth.end; row++) {
+      cells.push({ tx: originX, ty: originY + midY - 1 + row });
+      cells.push({ tx: originX - 1, ty: originY + midY - 1 + row });
+    }
   }
   return cells;
 }
@@ -376,31 +400,68 @@ function solidFromArtwork(image: HTMLImageElement, tileSize: number): boolean[][
   const pixels = context.getImageData(0, 0, image.width, image.height).data;
   const tilesX = image.width / tileSize;
   const tilesY = image.height / tileSize;
-  const solid: boolean[][] = [];
-  const ambiguous: string[] = [];
+  // 1 = wall, 0 = floor, -1 = unresolved scuff/trim.
+  const kind: number[][] = [];
 
   for (let ty = 0; ty < tilesY; ty++) {
-    const row: boolean[] = [];
+    const row: number[] = [];
     for (let tx = 0; tx < tilesX; tx++) {
       const red = averageRed(pixels, image.width, tx, ty, tileSize);
       if (red < gameConfig.wallRedMax) {
-        row.push(true);
+        row.push(1);
       } else if (red >= gameConfig.floorRedMin) {
-        row.push(false);
+        row.push(0);
       } else {
-        ambiguous.push(`${tx},${ty} (red ${red.toFixed(1)})`);
-        row.push(true);
+        row.push(-1);
       }
     }
-    solid.push(row);
+    kind.push(row);
   }
 
-  if (ambiguous.length > 0) {
-    throw new Error(
-      `Could not tell wall from floor on ${ambiguous.length} tile(s): ${ambiguous.slice(0, 6).join(", ")}.`,
-    );
+  // Grow walkable floor into interior unknowns so floor cracks do not become
+  // random barriers. Outer-edge unknowns stay walls.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let ty = 0; ty < tilesY; ty++) {
+      for (let tx = 0; tx < tilesX; tx++) {
+        if (kind[ty][tx] !== -1) {
+          continue;
+        }
+        const onEdge = tx === 0 || ty === 0 || tx === tilesX - 1 || ty === tilesY - 1;
+        if (onEdge) {
+          kind[ty][tx] = 1;
+          changed = true;
+          continue;
+        }
+        let floorNeighbors = 0;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          if (kind[ty + dy][tx + dx] === 0) {
+            floorNeighbors += 1;
+          }
+        }
+        if (floorNeighbors >= 1) {
+          kind[ty][tx] = 0;
+          changed = true;
+        }
+      }
+    }
   }
-  return solid;
+
+  for (let ty = 0; ty < tilesY; ty++) {
+    for (let tx = 0; tx < tilesX; tx++) {
+      if (kind[ty][tx] === -1) {
+        kind[ty][tx] = 1;
+      }
+    }
+  }
+
+  return kind.map((row) => row.map((value) => value === 1));
 }
 
 function averageRed(

@@ -27,7 +27,8 @@ struct Corridor {
 class DungeonLayout {
 public:
     static constexpr int kDoorWidth = 96;
-    static constexpr int kCorridorGap = 128;
+    static constexpr int kVerticalDoorWidth = 96;
+    static constexpr int kCorridorGap = 384;
 
     bool build(Room* start, std::mt19937& rng, std::string& error);
 

@@ -19,9 +19,8 @@ export const combatConfig = {
     visualScale: 0.98,
     acrossScale: 1,
     damage: 1,
-    // Straight up or down uses the vertical slash. Those swings crit 30% of the time, for 50% more damage.
-    critChance: 0.3,
-    critDamage: 1.5,
+    critChance: 0.1,
+    critDamage: 2,
     duration: 0.14,
     cooldown: 1,
     activeStart: 0.02,

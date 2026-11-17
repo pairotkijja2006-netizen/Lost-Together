@@ -92,10 +92,15 @@ export class InputManager {
       gameAudio.unlock();
     };
 
+    const bounds = this.canvas.getBoundingClientRect();
+    this.mouseX = bounds.width / 2;
+    this.mouseY = bounds.height / 2;
+
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
-    this.canvas.addEventListener("mousemove", this.onMouseMove);
+    // Track on the window so aim keeps updating even if the cursor leaves the canvas briefly.
+    window.addEventListener("pointermove", this.onMouseMove);
     this.canvas.addEventListener("pointerdown", this.onPointerDown);
   }
 
@@ -103,7 +108,7 @@ export class InputManager {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
-    this.canvas.removeEventListener("mousemove", this.onMouseMove);
+    window.removeEventListener("pointermove", this.onMouseMove);
     this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.held.clear();
   }

@@ -20,19 +20,19 @@ void sizeFor(char type, int& width, int& height) {
     switch (type) {
         case '#':
             width = 288;
-            height = 288;
+            height = 320;
             break;
         case 'f':
             width = 416;
-            height = 352;
+            height = 384;
             break;
         case 'e':
             width = 672;
-            height = 608;
+            height = 640;
             break;
         default:
             width = 544;
-            height = 480;
+            height = 512;
             break;
     }
 }
@@ -157,8 +157,11 @@ bool DungeonLayout::placeChildAt(Room* room, size_t index, const std::array<int,
             continue;
         }
 
-        const int doorY = room->y + room->height / 2;
-        const int doorX = room->x + room->width / 2;
+        constexpr int tile = 32;
+        const int parentMidX = (room->width / tile) / 2;
+        const int parentMidY = (room->height / tile) / 2;
+        const int childMidX = (childWidth / tile) / 2;
+        const int childMidY = (childHeight / tile) / 2;
         int x = 0;
         int y = 0;
         Corridor corridor;
@@ -166,31 +169,31 @@ bool DungeonLayout::placeChildAt(Room* room, size_t index, const std::array<int,
 
         if (direction == East) {
             x = room->x + room->width + kCorridorGap;
-            y = doorY - childHeight / 2;
+            y = room->y + (parentMidY - childMidY) * tile;
             corridor.x = room->x + room->width;
-            corridor.y = doorY - kDoorWidth / 2;
+            corridor.y = room->y + (parentMidY - 1) * tile;
             corridor.width = kCorridorGap;
             corridor.height = kDoorWidth;
         } else if (direction == West) {
             x = room->x - kCorridorGap - childWidth;
-            y = doorY - childHeight / 2;
+            y = room->y + (parentMidY - childMidY) * tile;
             corridor.x = x + childWidth;
-            corridor.y = doorY - kDoorWidth / 2;
+            corridor.y = room->y + (parentMidY - 1) * tile;
             corridor.width = kCorridorGap;
             corridor.height = kDoorWidth;
         } else if (direction == South) {
-            x = doorX - childWidth / 2;
+            x = room->x + (parentMidX - childMidX) * tile;
             y = room->y + room->height + kCorridorGap;
-            corridor.x = doorX - kDoorWidth / 2;
+            corridor.x = room->x + (parentMidX - 1) * tile;
             corridor.y = room->y + room->height;
-            corridor.width = kDoorWidth;
+            corridor.width = kVerticalDoorWidth;
             corridor.height = kCorridorGap;
         } else {
-            x = doorX - childWidth / 2;
+            x = room->x + (parentMidX - childMidX) * tile;
             y = room->y - kCorridorGap - childHeight;
-            corridor.x = doorX - kDoorWidth / 2;
+            corridor.x = room->x + (parentMidX - 1) * tile;
             corridor.y = y + childHeight;
-            corridor.width = kDoorWidth;
+            corridor.width = kVerticalDoorWidth;
             corridor.height = kCorridorGap;
         }
 

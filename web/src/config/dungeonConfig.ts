@@ -1,16 +1,40 @@
-// Supplied corridor artwork, cropped to its tile grid and served from /hallways.
-// The sheet is 11 columns by 5 rows. It is a horizontal hallway:
-// row 0 is the upper wall (light edge faces up, away from the floor),
-// rows 1–3 are floor, and row 4 is the lower wall (light edge faces down).
-// Tiles are sampled with nearest-neighbor onto the 32px dungeon grid.
-// Replace the PNG in assets/hallways/corridor.png and update these sizes if the sheet changes.
-export const hallwaySheet = {
-  url: "/hallways/corridor.png",
-  columns: 11,
-  rows: 5,
-  cellWidth: 79,
-  cellHeight: 73,
-  // One entry per row, top to bottom. true means that row is a wall.
-  // The open rows must stay contiguous so the floor lines up with a doorway.
-  solidRows: [true, false, false, false, true],
+export type HallwaySheetConfig = {
+  url: string;
+  // horizontal: sheet rows run across the path. vertical: sheet columns run across.
+  orientation: "horizontal" | "vertical";
+  columns: number;
+  rows: number;
+  cellWidth: number;
+  cellHeight: number;
+  // Wall/floor pattern across the path. Contiguous open cells are the walkway.
+  solidAcross: boolean[];
 };
+
+// Horizontal hallways keep the full depth wall (2 tiles on the north side).
+export const hallwaySheetHorizontal: HallwaySheetConfig = {
+  url: "/hallways/corridor.png",
+  orientation: "horizontal",
+  columns: 6,
+  rows: 6,
+  cellWidth: 32,
+  cellHeight: 32,
+  solidAcross: [true, true, false, false, false, true],
+};
+
+// Vertical hallways use the authored upright strip: wall, 3 floors, wall.
+export const hallwaySheetVertical: HallwaySheetConfig = {
+  url: "/hallways/corridor_vertical.png",
+  orientation: "vertical",
+  columns: 5,
+  rows: 8,
+  cellWidth: 32,
+  cellHeight: 32,
+  solidAcross: [true, false, false, false, true],
+};
+
+/** @deprecated Prefer hallwaySheetFor(). */
+export const hallwaySheet = hallwaySheetHorizontal;
+
+export function hallwaySheetFor(horizontal: boolean): HallwaySheetConfig {
+  return horizontal ? hallwaySheetHorizontal : hallwaySheetVertical;
+}

@@ -331,7 +331,7 @@ export class Combat {
     return this.goblins.filter((goblin) => !goblin.dead).length;
   }
 
-  // Captures the aim at launch. The projectile keeps that direction afterward.
+  // Captures mouse aim at launch. The projectile keeps that direction afterward.
   private launchFireball(feetX: number, feetY: number, aimX: number, aimY: number, facing: Facing): void {
     const shot = combatConfig.wizard.fireball;
     const originY = feetY + shot.originOffsetY;

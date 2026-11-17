@@ -139,41 +139,46 @@ function placeChildAt(
   const childSize = sizeFor(child.type);
   const gap = gameConfig.corridorGap;
   const door = gameConfig.doorWidth;
+  const tile = gameConfig.tileSize;
+  // Align on the middle door tile so even-height rooms stay on the grid and
+  // corridor floors meet the three-tile openings in the room art.
+  const parentMidX = Math.floor(room.width / tile / 2);
+  const parentMidY = Math.floor(room.height / tile / 2);
+  const childMidX = Math.floor(childSize.width / tile / 2);
+  const childMidY = Math.floor(childSize.height / tile / 2);
 
   for (const direction of directions) {
     if (room.doors & direction) {
       continue;
     }
-    const doorX = room.x + Math.floor(room.width / 2);
-    const doorY = room.y + Math.floor(room.height / 2);
     let x = 0;
     let y = 0;
     const corridor: GeneratedCorridor = { x: 0, y: 0, width: 0, height: 0, direction };
     if (direction === East) {
       x = room.x + room.width + gap;
-      y = doorY - Math.floor(childSize.height / 2);
+      y = room.y + (parentMidY - childMidY) * tile;
       corridor.x = room.x + room.width;
-      corridor.y = doorY - Math.floor(door / 2);
+      corridor.y = room.y + (parentMidY - 1) * tile;
       corridor.width = gap;
       corridor.height = door;
     } else if (direction === West) {
       x = room.x - gap - childSize.width;
-      y = doorY - Math.floor(childSize.height / 2);
+      y = room.y + (parentMidY - childMidY) * tile;
       corridor.x = x + childSize.width;
-      corridor.y = doorY - Math.floor(door / 2);
+      corridor.y = room.y + (parentMidY - 1) * tile;
       corridor.width = gap;
       corridor.height = door;
     } else if (direction === South) {
-      x = doorX - Math.floor(childSize.width / 2);
+      x = room.x + (parentMidX - childMidX) * tile;
       y = room.y + room.height + gap;
-      corridor.x = doorX - Math.floor(door / 2);
+      corridor.x = room.x + (parentMidX - 1) * tile;
       corridor.y = room.y + room.height;
       corridor.width = door;
       corridor.height = gap;
     } else {
-      x = doorX - Math.floor(childSize.width / 2);
+      x = room.x + (parentMidX - childMidX) * tile;
       y = room.y - gap - childSize.height;
-      corridor.x = doorX - Math.floor(door / 2);
+      corridor.x = room.x + (parentMidX - 1) * tile;
       corridor.y = y + childSize.height;
       corridor.width = door;
       corridor.height = gap;
@@ -253,10 +258,10 @@ function openingName(doors: number): string {
 }
 
 function sizeFor(type: string): { width: number; height: number } {
-  if (type === "#") return { width: 288, height: 288 };
-  if (type === "f") return { width: 416, height: 352 };
-  if (type === "e") return { width: 672, height: 608 };
-  return { width: 544, height: 480 };
+  if (type === "#") return { width: 288, height: 320 };
+  if (type === "f") return { width: 416, height: 384 };
+  if (type === "e") return { width: 672, height: 640 };
+  return { width: 544, height: 512 };
 }
 
 function opposite(direction: number): number {
